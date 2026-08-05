@@ -3,8 +3,8 @@
 ## 1. Metadata & Status Stamp
 * **Project Name:** Smart Horizon Hackathon - V2 Microservices & Auto-SRE Engine
 * **Last Modified Date:** August 5, 2026
-* **Current Phase:** Backend Infrastructure Complete & Validated. Transitioning to Frontend (Command Center UI).
-* **Repository State:** Initialized, Dockerized, and live-tested.
+* **Current Phase:** Backend Infrastructure & Telemetry Data Pipeline Validated. Ready for Command Center UI Integration.
+* **Repository State:** Initialized, Dockerized, live-tested with active chaos injection and telemetry extraction.
 
 ## 2. System Architecture Overview
 The system is an event-driven, microservices-based architecture built with Java (Spring Boot), heavily instrumented for comprehensive observability and active Chaos Engineering.
@@ -15,64 +15,74 @@ The system is an event-driven, microservices-based architecture built with Java 
   * `order-service`: Core business logic for processing orders.
   * `payment-service`: Core business logic for financial transactions.
 * **Data Layer:** A single consolidated PostgreSQL 16 container managing isolated logical databases (`auth_db`, `order_db`, `payment_db`). Caching via Redis 7. Message brokering via RabbitMQ 3.
-* **Observability Pipeline:** 100% trace sampling. Telemetry data is exported via OTLP to the OpenTelemetry Collector, which distributes metrics to Prometheus and distributed traces to Jaeger. Grafana sits on top for visualization.
+* **Observability Pipeline:** 100% trace sampling via OpenTelemetry Collector exporting metrics to Prometheus and traces to Jaeger. Real-time telemetry is continuously extracted and synchronized into JSON schemas for consumption by the UI engine.
 
 ## 3. Complete File & Directory Inventory
 
-### Root Configuration & Automation
-* `docker-compose.yml`: Master infrastructure orchestrator defining all 9 containers, port mappings, and internal networking.
+### Root Configuration, Automation & Telemetry Scripts
+* `docker-compose.yml`: Master infrastructure orchestrator defining all 11 containers, port mappings, network definitions, and `ara.topology.group=backend` labels.
 * `run.ps1`: Automated PowerShell execution script to cleanly tear down, build, and deploy the entire Dockerized cluster.
-* `load_generator.py`: Python-based traffic bot designed to spam the microservices with normal and chaos-triggering HTTP requests to generate live telemetry.
-* `otel-collector-config.yaml`: Defines how the OpenTelemetry Collector receives OTLP data and exports it to Prometheus/Jaeger.
-* `prometheus.yml`: Scrape configuration instructing Prometheus to pull metrics from the microservices and OTel collector.
-* `.gitignore`: Standard Git exclusions for Java/Node/Docker artifacts.
-* `PROJECT_STATE.md`: This file. The master state registry and context-restore document.
+* `load_generator.py`: Python traffic generator simulating user flows and chaos endpoint triggers.
+* `continuous_telemetry.py`: Data extractor daemon querying Docker container state and resource metrics for labeled backend containers.
+* `frontend_data_sync.py`: Formatter daemon that transforms raw telemetry dumps into structured JSON files for the frontend.
+* `chaos_orchestrator.py`: Automated chaos injection tool using Docker SDK to pause target containers (e.g., `postgres-db`) and validate system recovery.
+* `otel-collector-config.yaml`: Defines OpenTelemetry Collector receivers, processors, and exporters.
+* `prometheus.yml`: Scrape configuration instructing Prometheus to pull metrics from microservices and OTel collector.
+* `.gitignore`: Standard Git exclusions for Java/Python/Node/Docker artifacts.
+* `PROJECT_STATE.md`: Master state registry and context-restore document.
+
+### Telemetry Output Layer (`frontend_data/`)
+* `status.json`: Real-time operational status and health metrics of active microservices.
+* `time_series.json`: Historical CPU/Memory usage metrics across container lifecycles.
+* `events_and_incidents.json`: Incident log recording chaos triggers, error states, and resolution events.
+* `analytics.json`, `causality.json`, `cost_and_roi.json`: Operational analysis datasets for system impact assessment.
 
 ### Database Initialization
-* `postgres-init/init.sql`: Auto-executed script that creates the logical databases (`auth_db`, `order_db`, `payment_db`) when the Postgres container first boots.
+* `postgres-init/init.sql`: Auto-executed script that creates logical databases (`auth_db`, `order_db`, `payment_db`) on PostgreSQL container boot.
 
 ### API Gateway (`api-gateway/`)
 * `pom.xml` & `Dockerfile`: Build and containerization configurations.
-* `ApiGatewayApplication.java`: Spring Boot main class for the Gateway.
-* `config/GatewaySecurityConfig.java`: Configures edge security and defines which routes require authentication.
-* `controller/FailureInjectionController.java`: Exposes REST endpoints to dynamically toggle chaos variables in the gateway.
-* `filter/FailureInjectionFilter.java`: Intercepts traffic to inject artificial latency or trigger HTTP 429 Rate Limit errors based on volatile variables.
-* `filter/JwtValidationFilter.java`: Intercepts incoming requests to validate JWT signatures before routing them to internal services.
-* `application.yml`: Defines route predicates pointing to internal services and configures 100% OTLP trace sampling.
+* `ApiGatewayApplication.java`: Spring Boot main entry point.
+* `config/GatewaySecurityConfig.java`: Configures edge security and authentication routes.
+* `controller/FailureInjectionController.java`: REST endpoints for dynamic gateway chaos configuration.
+* `filter/FailureInjectionFilter.java`: Traffic filter injecting artificial latency and rate limiting.
+* `filter/JwtValidationFilter.java`: JWT signature verification filter.
+* `application.yml`: Route predicate definitions and OTLP exporter settings.
 
 ### Auth Service (`auth-service/`)
 * `pom.xml` & `Dockerfile`: Build and containerization configurations.
-* `AuthServiceApplication.java`: Spring Boot main class.
-* `config/AuthSecurityConfig.java`: Internal security configurations for auth endpoints.
-* `controller/AuthController.java`: Handles `/login` and `/register` HTTP requests.
-* `controller/FailureInjectionController.java`: Localized chaos injection endpoints specific to the auth domain.
-* `dto/AuthResponse.java`, `LoginRequest.java`, `RegisterRequest.java`: Data Transfer Objects for JSON serialization.
-* `model/User.java`: Entity mapping to the PostgreSQL `auth_db`.
-* `repository/UserRepository.java`: JPA repository interface for database operations.
-* `util/JwtUtil.java`: Utility class for signing and verifying JSON Web Tokens.
-* `application.yml`: Database connection strings and OTLP exporter configuration.
+* `AuthServiceApplication.java`: Spring Boot main entry point.
+* `config/AuthSecurityConfig.java`: Internal domain security configurations.
+* `controller/AuthController.java`: Handles `/login` and `/register` endpoints.
+* `controller/FailureInjectionController.java`: Localized chaos injection endpoints.
+* `dto/AuthResponse.java`, `LoginRequest.java`, `RegisterRequest.java`: DTOs for authentication.
+* `model/User.java`: Entity mapping for `auth_db`.
+* `repository/UserRepository.java`: JPA repository interface.
+* `util/JwtUtil.java`: Utility class for signing and verifying JWTs.
+* `application.yml`: Datasource connection and OTLP settings.
 
 ### Order Service (`order-service/`)
 * `pom.xml` & `Dockerfile`: Build and containerization configurations.
-* `OrderServiceApplication.java`: Spring Boot main class.
-* `OrderController.java`: Exposes business logic endpoints for order creation and management.
-* `application.yml`: Database connection strings (`order_db`) and OTLP exporter configuration.
+* `OrderServiceApplication.java`: Spring Boot main entry point.
+* `OrderController.java`: Endpoints for order processing.
+* `application.yml`: Datasource connection (`order_db`) and OTLP settings.
 
 ### Payment Service (`payment-service/`)
 * `pom.xml` & `Dockerfile`: Build and containerization configurations.
-* `PaymentServiceApplication.java`: Spring Boot main class.
-* `PaymentController.java`: Exposes business logic for transactions and localized chaos/failure endpoints (e.g., simulating card declines).
-* `application.yml`: Database connection strings (`payment_db`) and OTLP exporter configuration.
+* `PaymentServiceApplication.java`: Spring Boot main entry point.
+* `PaymentController.java`: Financial transaction logic and failure simulation endpoints.
+* `application.yml`: Datasource connection (`payment_db`) and OTLP settings.
 
 ## 4. Changelog & Historical Log
-* **Pre-August 2026:** Designed microservice architecture and implemented Spring Boot core logic.
+* **Pre-August 2026:** Designed microservices architecture and implemented Spring Boot core logic.
 * **August 5, 2026:** 
   * Consolidated database architecture to a single shared Postgres container with isolated schemas.
   * Fully wired OpenTelemetry (OTLP) tracing across all services with 100% sampling probability.
-  * Verified `FailureInjectionFilter` for dynamic latency and rate-limiting at the Gateway layer.
-  * Resolved `.git/index.lock` file locking issues.
-  * Resolved Docker Engine connection failures and network timeout (`unexpected EOF`, `TLS handshake timeout`) during base image pulls.
-  * Validated full cluster spin-up via `docker-compose up -d --build`.
+  * Resolved OTLP port binding conflicts between Jaeger and OpenTelemetry Collector.
+  * Added topology classification labels (`ara.topology.group=backend`) across all microservices in `docker-compose.yml`.
+  * Built and validated Python telemetry extraction (`continuous_telemetry.py`) and JSON synchronization (`frontend_data_sync.py`).
+  * Created `chaos_orchestrator.py` and validated database pause/unpause chaos injection cycles.
+  * Verified end-to-end data flow: traffic generation -> container crash -> telemetry capture -> live JSON dataset generation.
 
 ## 5. Active Configuration & Endpoints
 **Infrastructure Ports:**
@@ -89,13 +99,7 @@ The system is an event-driven, microservices-based architecture built with Java 
 * Prometheus UI (Metrics): `http://localhost:9090`
 * Grafana UI (Dashboards): `http://localhost:3000` (admin/admin)
 
-**Chaos Endpoints (Example):**
-* Gateway Chaos: Toggle via Gateway API
-* Order Chaos: `/api/v1/orders/chaos/error` (Routed via Gateway)
-* Payment Chaos: `/api/v1/payments/chaos/latency`, `/api/v1/payments/chaos/decline` (Routed via Gateway)
-
 ## 6. Next Roadmap Steps
-* **Phase 3 (Frontend):** Select a frontend framework (React/Next.js/Vue) and initialize the Command Center UI repository.
-* **UI Integration:** Build the interactive topology map that visualizes the microservices.
-* **Chaos Dashboard:** Wire frontend buttons directly to the `FailureInjectionController` endpoints to trigger live incidents.
-* **Telemetry Embedding:** Embed Grafana panels or query Prometheus directly to show real-time metrics reacting to the injected chaos.
+* Initialize Command Center UI directory and install dependencies.
+* Render 3D system topology map consuming `frontend_data/status.json` and `frontend_data/time_series.json`.
+* Wire interactive chaos control triggers directly to microservice failure endpoints.

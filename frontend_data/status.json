@@ -1,0 +1,44 @@
+[
+    {
+        "id": "818e680505d5",
+        "name": "payment-service",
+        "status": "running",
+        "health": "unknown"
+    },
+    {
+        "id": "2f6c7c10917f",
+        "name": "auth-service",
+        "status": "running",
+        "health": "unknown"
+    },
+    {
+        "id": "94284c4b5f92",
+        "name": "order-service",
+        "status": "running",
+        "health": "unknown"
+    },
+    {
+        "id": "fad1860aa580",
+        "name": "api-gateway",
+        "status": "running",
+        "health": "unknown"
+    },
+    {
+        "id": "534f9c4dc26a",
+        "name": "postgres-db",
+        "status": "running",
+        "health": "unknown"
+    },
+    {
+        "id": "e49587e8feb5",
+        "name": "rabbitmq",
+        "status": "running",
+        "health": "unknown"
+    },
+    {
+        "id": "f9cf1a1f1421",
+        "name": "redis",
+        "status": "running",
+        "health": "unknown"
+    }
+]

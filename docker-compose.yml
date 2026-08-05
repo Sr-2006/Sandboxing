@@ -4,6 +4,8 @@ services:
   postgres-db:
     image: postgres:16-alpine
     container_name: postgres-db
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "5432:5432"
     environment:
@@ -17,6 +19,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "6379:6379"
     volumes:
@@ -25,6 +29,8 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: rabbitmq
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -39,8 +45,6 @@ services:
     container_name: jaeger
     ports:
       - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
 
@@ -83,6 +87,8 @@ services:
     build:
       context: ./api-gateway
     container_name: api-gateway
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "8080:8080"
     environment:
@@ -99,6 +105,8 @@ services:
     build:
       context: ./auth-service
     container_name: auth-service
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "8081:8081"
     environment:
@@ -119,6 +127,8 @@ services:
     build:
       context: ./order-service
     container_name: order-service
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "8082:8082"
     environment:
@@ -136,6 +146,8 @@ services:
     build:
       context: ./payment-service
     container_name: payment-service
+    labels:
+      - "ara.topology.group=backend"
     ports:
       - "8083:8083"
     environment:

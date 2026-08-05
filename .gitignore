@@ -11,3 +11,5 @@ target/
 .classpath
 .project
 .gemini/
+# Ignore raw telemetry batches
+telemetry_dumps/

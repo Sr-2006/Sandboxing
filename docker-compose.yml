@@ -2,10 +2,11 @@ x-chaos-env: &chaos-env
   CHAOS_ENABLED: "${ENABLE_CHAOS:-true}"
   SPRING_PROFILES_ACTIVE: "dev"
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JWT_SECRET: "${JWT_SECRET:-c2VjdXJlX2p3dF9zZWNyZXRfa2V5X2Zvcl9hdXRvX3NyZV9wbGF0Zm9ybV8xMjM0NTY3ODkwMTIzNDU2Nzg5MA==}"
 
 services:
   postgres-db:
-    image: postgres:16-alpine
+    image: postgres:16.2-alpine
     container_name: postgres-db
     labels:
       - "ara.topology.group=backend"
@@ -13,9 +14,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=postgres
+      - POSTGRES_USER=${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - POSTGRES_DB=${POSTGRES_DB:?POSTGRES_DB must be set in .env}
     mem_limit: 512M
     deploy:
       resources:
@@ -23,7 +24,7 @@ services:
           memory: 512M
     restart: "on-failure:3"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,7 +33,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.2.4-alpine
     container_name: redis
     labels:
       - "ara.topology.group=backend"
@@ -53,7 +54,7 @@ services:
       - redis_data:/data
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:3.13.0-management-alpine
     container_name: rabbitmq
     labels:
       - "ara.topology.group=backend"
@@ -62,8 +63,8 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:?RABBITMQ_DEFAULT_USER must be set in .env}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS must be set in .env}
     mem_limit: 512M
     deploy:
       resources:
@@ -78,7 +79,7 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.57.0
     container_name: jaeger
     labels:
       - "ara.topology.role=observability-query"
@@ -94,7 +95,7 @@ services:
     restart: "on-failure:3"
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.102.0
     container_name: otel-collector
     labels:
       - "ara.topology.role=observability-ingest"
@@ -124,7 +125,7 @@ services:
       - jaeger
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.53.0
     container_name: prometheus
     labels:
       - "ara.topology.role=observability-metrics"
@@ -140,7 +141,7 @@ services:
     restart: "on-failure:3"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.1.0
     container_name: grafana
     labels:
       - "ara.topology.role=observability-viz"
@@ -149,7 +150,8 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     mem_limit: 256M
     deploy:
       resources:
@@ -176,8 +178,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "api-gateway"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/postgres"
-      SPRING_DATASOURCE_USERNAME: "postgres"
-      SPRING_DATASOURCE_PASSWORD: "postgres"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
     mem_limit: 512M
     deploy:
       resources:
@@ -203,8 +205,8 @@ services:
     environment:
       <<: *chaos-env
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/auth_db"
-      SPRING_DATASOURCE_USERNAME: "postgres"
-      SPRING_DATASOURCE_PASSWORD: "postgres"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
       SPRING_REDIS_HOST: "redis"
       SPRING_REDIS_PORT: 6379
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
@@ -236,8 +238,8 @@ services:
     environment:
       <<: *chaos-env
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/order_db"
-      SPRING_DATASOURCE_USERNAME: "postgres"
-      SPRING_DATASOURCE_PASSWORD: "postgres"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "order-service"
     mem_limit: 512M
@@ -266,8 +268,8 @@ services:
     environment:
       <<: *chaos-env
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/payment_db"
-      SPRING_DATASOURCE_USERNAME: "postgres"
-      SPRING_DATASOURCE_PASSWORD: "postgres"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "payment-service"
     mem_limit: 512M

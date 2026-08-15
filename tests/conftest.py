@@ -1,6 +1,4 @@
 import pytest
-import os
-import json
 
 @pytest.fixture
 def sample_incident_data():

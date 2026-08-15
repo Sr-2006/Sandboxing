@@ -6,7 +6,7 @@ target/
 .idea/
 *.iml
 .vscode/
-.settings/
+*.settings/
 .metadata/
 .classpath
 .project
@@ -14,12 +14,18 @@ target/
 *.tmp
 __pycache__/
 *.pyc
-
-# Ignore raw telemetry batches and scratch files
-telemetry_dumps/
-frontend_data/health_warnings.log
-frontend_data/drain3_state.bin
-drain3_state.bin
-phase1_test_report.md
+.env
 .pytest_cache/
 jobs.lck
+.coverage
+htmlcov/
+
+# Ignore raw telemetry batches, generated runtime artifacts and scratch files
+telemetry_dumps/
+validation_report.json
+phase1_test_report.md
+frontend_data/*.json
+frontend_data/*.meta
+frontend_data/*.bin
+frontend_data/health_warnings.log
+!frontend_data/.gitkeep

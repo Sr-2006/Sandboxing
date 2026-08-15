@@ -2,7 +2,6 @@ import time
 import random
 import requests
 import argparse
-import sys
 import uuid
 
 GATEWAY_URL = "http://localhost:8080"
@@ -53,7 +52,7 @@ def send_request(target_service="all"):
             else:
                 res = requests.get(url, timeout=3.0)
             print(f"[LOAD] [{service.upper()}] {ep['method']} {ep['path']} -> {res.status_code}")
-        except Exception as e:
+        except Exception:
             # Fallback to direct service port
             port = ep['fallback_port']
             fallback_path = ep['path'].replace("/api/v1/orders", "/api/orders").replace("/api/v1/payments", "/api/payments")

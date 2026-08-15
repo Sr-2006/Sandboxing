@@ -1,6 +1,6 @@
 import re
-from typing import List, Optional, Dict, Union, Any
-from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, field_validator
 
 class SystemContext(BaseModel):
     objective: str

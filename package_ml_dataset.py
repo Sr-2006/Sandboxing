@@ -2,9 +2,9 @@ import os
 import json
 import yaml
 import time
-import tempfile
 import gc
 from datetime import datetime, timezone
+from utils import atomic_write_json, read_json_file, parse_iso_dt
 from phase1_schema import (
     UnifiedMasterDataset,
     SystemContext,
@@ -25,8 +25,6 @@ PROCESSED_INCIDENTS_FILE = os.path.join("frontend_data", "processed_incidents.js
 CHAOS_HISTORY_FILE = os.path.join("frontend_data", "chaos_history.json")
 OUTPUT_DATASET_FILE = os.path.join("frontend_data", "unified_master_dataset.json")
 
-from utils import atomic_write_json, read_json_file, parse_iso_dt
-
 def parse_docker_compose_topology():
     if not os.path.exists(COMPOSE_FILE):
         return {}
@@ -43,9 +41,9 @@ def parse_docker_compose_topology():
         labels = s_cfg.get("labels", [])
         role = name
         if isinstance(labels, list):
-            for l in labels:
-                if isinstance(l, str) and l.startswith("ara.topology.role="):
-                    role = l.split("=", 1)[1]
+            for lbl in labels:
+                if isinstance(lbl, str) and lbl.startswith("ara.topology.role="):
+                    role = lbl.split("=", 1)[1]
         elif isinstance(labels, dict):
             role = labels.get("ara.topology.role", name)
 
@@ -89,14 +87,13 @@ def package_dataset():
     start_time = time.time()
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    print(f"=== [Auto-SRE Phase 1] Packaging Unified Master Dataset for ML/LLM ===")
+    print("=== [Auto-SRE Phase 1] Packaging Unified Master Dataset for ML/LLM ===")
 
     # 1. Parse topology from docker-compose.yml
     topology_map = parse_docker_compose_topology()
 
     # 2. Read live data files
     status_data = read_json_file(STATUS_FILE, {})
-    time_series_data = read_json_file(TIME_SERIES_FILE, [])
     processed_incidents_data = read_json_file(PROCESSED_INCIDENTS_FILE, {})
     chaos_history_data = read_json_file(CHAOS_HISTORY_FILE, [])
 

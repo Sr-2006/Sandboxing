@@ -2,13 +2,12 @@ import time
 import random
 import uuid
 import os
-import json
 import argparse
-import sys
 import gc
 import docker
 
 import chaos_orchestrator
+from utils import atomic_write_json, read_json_file, file_lock_context
 
 try:
     client = docker.from_env()
@@ -52,7 +51,6 @@ def get_original_limits(container_name):
         print(f"[WARNING] Could not get original limits for {container_name}: {e}")
         return {"memory": 0, "memswap": 0, "cpu_period": 0, "cpu_quota": -1}
 
-from utils import atomic_write_json, read_json_file, file_lock_context
 
 def write_history_atomic(entry):
     with file_lock_context(HISTORY_FILE):

@@ -1,0 +1,123 @@
+stages:
+  - lint
+  - test-python
+  - test-java
+  - integration
+  - validate
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "postgres_secure_password"
+  POSTGRES_DB: "postgres"
+  RABBITMQ_DEFAULT_USER: "guest"
+  RABBITMQ_DEFAULT_PASS: "guest_secure_password"
+  JWT_SECRET: "c2VjdXJlX2p3dF9zZWNyZXRfa2V5X2Zvcl9hdXRvX3NyZV9wbGF0Zm9ybV8xMjM0NTY3ODkwMTIzNDU2Nzg5MA=="
+  GRAFANA_ADMIN_USER: "admin"
+  GRAFANA_ADMIN_PASSWORD: "admin_secure_password"
+  TARGET_HOST: "localhost"
+  ENABLE_CHAOS: "true"
+
+default:
+  interruptible: true
+
+lint:
+  stage: lint
+  image: python:3.11-slim
+  before_script:
+    - pip install --no-cache-dir ruff==0.4.4 mypy==1.10.0
+  script:
+    - ruff check .
+    - mypy --ignore-missing-imports chaos_orchestrator.py phase1_processor.py package_ml_dataset.py validate_10.py
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+test-python:
+  stage: test-python
+  image: python:3.11-slim
+  before_script:
+    - pip install --no-cache-dir -r requirements.txt
+  script:
+    - pytest -v -q --junitxml=report.xml tests/
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    paths:
+      - report.xml
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+test-java:
+  stage: test-java
+  image: maven:3.9-eclipse-temurin-21
+  parallel:
+    matrix:
+      - SERVICE: [api-gateway, auth-service, order-service, payment-service]
+  cache:
+    key: maven-m2-${SERVICE}
+    paths:
+      - .m2/repository
+  script:
+    - cd $SERVICE
+    - mvn test -Dmaven.repo.local=../.m2/repository
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - "*/target/surefire-reports/TEST-*.xml"
+    paths:
+      - "$SERVICE/target/site/jacoco/jacoco.xml"
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+integration:
+  stage: integration
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  before_script:
+    - apk add --no-cache python3 py3-pip bash curl
+    - python3 -m venv /venv
+    - . /venv/bin/activate
+    - pip install --no-cache-dir -r requirements.txt
+    - cp .env.example .env
+  script:
+    - docker compose config -q
+    - docker compose up -d --wait
+    - python continuous_telemetry.py &
+    - python frontend_data_sync.py &
+    - python load_generator.py --duration 60
+    - python chaos_scenarios.py --scenario smoke
+    - python phase1_processor.py --reset-drain
+    - python package_ml_dataset.py
+    - docker compose down -v
+  artifacts:
+    paths:
+      - frontend_data/
+    expire_in: 1 day
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^phase-/
+
+validate:
+  stage: validate
+  image: python:3.11-slim
+  before_script:
+    - pip install --no-cache-dir -r requirements.txt
+    - cp .env.example .env
+  script:
+    - python validate_10.py --static
+  artifacts:
+    when: always
+    paths:
+      - validation_report.json
+    expire_in: 14 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH

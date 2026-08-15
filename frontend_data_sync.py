@@ -1,9 +1,8 @@
 import os
-import json
 import time
-import tempfile
 import gc
 from datetime import datetime, timezone
+from utils import atomic_write_json, read_json_file
 
 OUTPUT_DIR = "frontend_data"
 RAW_TELEMETRY_FILE = os.path.join(OUTPUT_DIR, "raw_telemetry.json")
@@ -32,8 +31,6 @@ SERVICE_DEPENDENCIES = {
     "grafana": [],
     "jaeger": []
 }
-
-from utils import atomic_write_json, read_json_file, parse_iso_dt
 
 def log_msg(msg: str):
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

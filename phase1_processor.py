@@ -2,7 +2,6 @@ import os
 import json
 import math
 import re
-import tempfile
 import gc
 import argparse
 from datetime import datetime, timezone
@@ -48,12 +47,20 @@ REDIS_NOISE_RE = re.compile(
     r'Warning: no config file specified|'
     r'Configured to not listen anywhere|'
     r'Server initialized|'
+    r'Background saving|'
+    r'DB loaded from disk|'
+    r'Reading the remaining RDB|'
+    r'RDB memory usage|'
+    r'Running mode=|'
+    r'Configuration loaded|'
+    r'Loading RDB|'
+    r'Server started, Redis version|'
     r'\d+:\w+ \d+ \w+ \d{4} \d{2}:\d{2}:\d{2}.*)',
     re.IGNORECASE
 )
 
 REDIS_ERROR_ALLOWLIST_RE = re.compile(
-    r"# Error|MISCONF|Failed| CantSaveIn| fatale|out of memory",
+    r"#\s*Error|MISCONF|Failed|CantSaveIn|fatal|out of memory|WRONGTYPE|NOREPLICAS|\bLOADING\s+Redis",
     re.IGNORECASE
 )
 
@@ -71,12 +78,13 @@ RABBITMQ_NOISE_RE = re.compile(
     r'log\(s\)       :|'
     r'database dir   :|'
     r'Running boot step .*|'
+    r'Deprecated features:.*|'
     r'\[\w+\] .* \d+\.\d+\.\d+.*)',
     re.IGNORECASE
 )
 
 RABBITMQ_ERROR_ALLOWLIST_RE = re.compile(
-    r"# Error|MISCONF|Failed| ERROR |exception|Exception|failed|error",
+    r"#\s*Error|MISCONF|\b(?:CRITICAL|FATAL|ERROR)\b|Exception|ConnectionClosed|disk_alarm|connection\.retry|out of memory",
     re.IGNORECASE
 )
 
@@ -88,7 +96,7 @@ def is_infra_noise(container_name: str, level: str, raw_content: str) -> bool:
         try:
             inner = json.loads(cleaned)
             thread_name = inner.get("thread_name") or inner.get("thread")
-        except:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             pass
 
     # Filter out main thread logs (startup noise)
@@ -266,7 +274,7 @@ def process_phase1_incidents(reset_drain: bool = False):
     chaos_history_file = os.path.join("frontend_data", "chaos_history.json")
     output_file = os.path.join("frontend_data", "processed_incidents.json")
 
-    print(f"=== [Auto-SRE Phase 1] Processing Inbound Telemetry & Log Clusters ===")
+    print("=== [Auto-SRE Phase 1] Processing Inbound Telemetry & Log Clusters ===")
 
     check_drain_version_and_reset_if_needed(reset_drain)
 

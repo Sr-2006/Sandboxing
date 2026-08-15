@@ -1,12 +1,10 @@
 import sys
 import os
 import json
-import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from phase1_schema import UnifiedMasterDataset, IncidentEvent
-from pydantic import ValidationError
+from phase1_schema import UnifiedMasterDataset
 
 def test_frozen_fixture_contract():
     fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "unified_master_dataset_sample.json")

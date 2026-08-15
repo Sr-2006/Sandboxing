@@ -28,10 +28,10 @@ def test_redis_legitimate_errors_passed():
         "1:M 15 Aug 2026 10:00:00.000 # Error writing to client: Connection reset",
         "1:M 15 Aug 2026 10:00:00.000 # MISCONF Redis is configured to save RDB snapshots",
         "1:M 15 Aug 2026 10:00:00.000 # Failed opening .rdb for saving: Permission denied",
-        "1:M 15 Aug 2026 10:00:00.000 #  CantSaveIn background saving error",
-        "1:M 15 Aug 2026 10:00:00.000 #  fatale error during load",
+        "1:M 15 Aug 2026 10:00:00.000 # CantSaveIn background saving error",
+        "1:M 15 Aug 2026 10:00:00.000 # fatal error during load",
         "1:M 15 Aug 2026 10:00:00.000 # Out of memory allocating 1048576 bytes",
-        "1:M 15 Aug 2026 10:00:00.000 #  WARNING  Overcommit memory is set to 0!"
+        "1:M 15 Aug 2026 10:00:00.000 # WRONGTYPE Operation against a key holding the wrong kind of value"
     ]
     for sample in error_samples:
         assert is_redis_noise("redis", "ERROR", sample) is False, f"Erroneously filtered: {sample}"

@@ -5,6 +5,7 @@ import sys
 import argparse
 import socket
 import logging
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 import docker
 import docker.errors
@@ -66,7 +67,7 @@ def get_container(target: str):
                 return c
         raise docker.errors.NotFound(f"Container '{target}' not found")
 
-def log_chaos_event(fault_name: str, target: str, start_ts: str, end_ts: str, params: dict, duration: float):
+def log_chaos_event(fault_name: str, target: str, start_ts: str, end_ts: str, params: Optional[Dict[str, Any]], duration: float) -> None:
     history_file = os.path.join("frontend_data", "chaos_history.json")
     os.makedirs("frontend_data", exist_ok=True)
     events = []
@@ -101,7 +102,7 @@ def log_chaos_event(fault_name: str, target: str, start_ts: str, end_ts: str, pa
 
 # --- Fault Implementations ---
 
-def apply_fault(fault_name: str, target: str, params: dict = None):
+def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] = None) -> None:
     if params is None:
         params = {}
     
@@ -220,7 +221,7 @@ def apply_fault(fault_name: str, target: str, params: dict = None):
     duration = (end_time - start_time).total_seconds()
     log_chaos_event(fault_name, target, start_ts, end_ts, params, max(duration, 1.0))
 
-def recover_fault(fault_name: str, target: str, orig_config: dict = None):
+def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, Any]] = None) -> None:
     logger.info(f"Recovering fault '{fault_name}' on target '{target}'")
     if orig_config is None:
         orig_config = {}

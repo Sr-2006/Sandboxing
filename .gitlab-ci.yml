@@ -26,7 +26,7 @@ lint:
   stage: lint
   image: python:3.11-slim
   before_script:
-    - pip install --no-cache-dir ruff==0.4.4 mypy==1.10.0
+    - pip install --no-cache-dir -r requirements.txt
   script:
     - ruff check .
     - mypy --ignore-missing-imports chaos_orchestrator.py phase1_processor.py package_ml_dataset.py validate_10.py

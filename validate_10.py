@@ -43,8 +43,16 @@ def static_gates():
     gate("env_gitignored", ".env" in read(".gitignore"))
 
     # WS3: generated artifacts not tracked
-    tracked = subprocess.run(["git", "ls-files", "frontend_data/", "validation_report.json"],
-                             capture_output=True, text=True, cwd=ROOT).stdout.split()
+    try:
+        tracked = subprocess.run(["git", "ls-files", "frontend_data/", "validation_report.json"],
+                                 capture_output=True, text=True, cwd=ROOT).stdout.split()
+    except FileNotFoundError:
+        # git not available (e.g. slim CI image): a fresh CI checkout only
+        # contains tracked files, so filesystem presence is equivalent.
+        tracked = [str(p.relative_to(ROOT)) for p in (ROOT / "frontend_data").glob("*")
+                   if p.is_file()] if (ROOT / "frontend_data").exists() else []
+        if (ROOT / "validation_report.json").exists():
+            tracked.append("validation_report.json")
     bad = [f for f in tracked if f.endswith((".json", ".bin", ".meta"))]
     gate("no_generated_artifacts_tracked", not bad, f"tracked={bad[:5]}" if bad else "clean")
 

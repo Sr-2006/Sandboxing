@@ -11,5 +11,15 @@ target/
 .classpath
 .project
 .gemini/
-# Ignore raw telemetry batches
+*.tmp
+__pycache__/
+*.pyc
+
+# Ignore raw telemetry batches and scratch files
 telemetry_dumps/
+frontend_data/health_warnings.log
+frontend_data/drain3_state.bin
+drain3_state.bin
+phase1_test_report.md
+.pytest_cache/
+jobs.lck

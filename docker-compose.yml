@@ -1,4 +1,7 @@
-version: '3.8'
+x-chaos-env: &chaos-env
+  CHAOS_ENABLED: "${ENABLE_CHAOS:-true}"
+  SPRING_PROFILES_ACTIVE: "dev"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
 
 services:
   postgres-db:
@@ -6,12 +9,24 @@ services:
     container_name: postgres-db
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=relational-database"
     ports:
       - "5432:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=postgres
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: "on-failure:3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./postgres-init:/docker-entrypoint-initdb.d
       - postgres_data:/var/lib/postgresql/data
@@ -21,8 +36,19 @@ services:
     container_name: redis
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=cache"
     ports:
       - "6379:6379"
+    mem_limit: 256M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - redis_data:/data
 
@@ -31,26 +57,47 @@ services:
     container_name: rabbitmq
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=message-broker"
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: jaeger
+    labels:
+      - "ara.topology.role=observability-query"
     ports:
       - "16686:16686"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: "on-failure:3"
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     container_name: otel-collector
+    labels:
+      - "ara.topology.role=observability-ingest"
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
@@ -62,24 +109,53 @@ services:
       - "4317:4317"
       - "4318:4318"
       - "55679:55679"
+    mem_limit: 256M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    restart: "on-failure:3"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       - jaeger
 
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
+    labels:
+      - "ara.topology.role=observability-metrics"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: "on-failure:3"
 
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
+    labels:
+      - "ara.topology.role=observability-viz"
     ports:
       - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+    mem_limit: 256M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    restart: "on-failure:3"
     depends_on:
       - prometheus
 
@@ -89,15 +165,29 @@ services:
     container_name: api-gateway
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=edge-routing-and-rate-limiting"
     ports:
       - "8080:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-      - AUTH_SERVICE_URL=http://auth-service:8081
-      - ORDER_SERVICE_URL=http://order-service:8082
-      - PAYMENT_SERVICE_URL=http://payment-service:8083
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=api-gateway
+      <<: *chaos-env
+      AUTH_SERVICE_URL: "http://auth-service:8081"
+      ORDER_SERVICE_URL: "http://order-service:8082"
+      PAYMENT_SERVICE_URL: "http://payment-service:8083"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "api-gateway"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/postgres"
+      SPRING_DATASOURCE_USERNAME: "postgres"
+      SPRING_DATASOURCE_PASSWORD: "postgres"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     depends_on:
       - otel-collector
 
@@ -107,17 +197,28 @@ services:
     container_name: auth-service
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=authentication-service"
     ports:
       - "8081:8081"
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/auth_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=postgres
-      - SPRING_REDIS_HOST=redis
-      - SPRING_REDIS_PORT=6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=auth-service
+      <<: *chaos-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/auth_db"
+      SPRING_DATASOURCE_USERNAME: "postgres"
+      SPRING_DATASOURCE_PASSWORD: "postgres"
+      SPRING_REDIS_HOST: "redis"
+      SPRING_REDIS_PORT: 6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "auth-service"
+    mem_limit: 384M
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     depends_on:
       - postgres-db
       - redis
@@ -129,15 +230,26 @@ services:
     container_name: order-service
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=order-processing"
     ports:
       - "8082:8082"
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/order_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=postgres
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=order-service
+      <<: *chaos-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/order_db"
+      SPRING_DATASOURCE_USERNAME: "postgres"
+      SPRING_DATASOURCE_PASSWORD: "postgres"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "order-service"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     depends_on:
       - postgres-db
       - otel-collector
@@ -148,18 +260,51 @@ services:
     container_name: payment-service
     labels:
       - "ara.topology.group=backend"
+      - "ara.topology.role=payment-processing"
     ports:
       - "8083:8083"
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/payment_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=postgres
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=payment-service
+      <<: *chaos-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/payment_db"
+      SPRING_DATASOURCE_USERNAME: "postgres"
+      SPRING_DATASOURCE_PASSWORD: "postgres"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "payment-service"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     depends_on:
       - postgres-db
       - otel-collector
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: loki
+    labels:
+      - "ara.topology.role=observability-logging"
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: "on-failure:3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

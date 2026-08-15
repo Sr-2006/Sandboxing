@@ -19,11 +19,14 @@ import lombok.NoArgsConstructor;
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private java.util.UUID id;
 
     private String username;
+
+    @jakarta.persistence.Column(name = "password_hash")
     private String password;
+
     private String email;
     private String role;
 }

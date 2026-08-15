@@ -1,0 +1,105 @@
+# ==============================================================================
+# Auto-SRE Phase 2 Expectations & Input Contract
+# Consumed by: Phase 2 (ChromaDB Fingerprinting & Contextual Memory) & Phase 3 (LLM RCA)
+# ==============================================================================
+
+Phase 1 produces the canonical, validated dataset at:
+    `frontend_data/unified_master_dataset.json`
+
+This file conforms to the Pydantic v2 schema defined in `phase1_schema.py` and is fully ready for vector embedding, historical case retrieval, and multi-agent LLM analysis.
+
+---
+
+### Master Dataset Schema & Format
+
+```json
+{
+  "generated_at": "2026-08-15T10:00:00Z",
+  "system_context": {
+    "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
+    "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
+    "current_health_score": 96.7,
+    "active_warnings": 1
+  },
+  "incidents": [
+    {
+      "system_context": {
+        "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
+        "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
+        "current_health_score": 96.7,
+        "active_warnings": 1
+      },
+      "incident_event": {
+        "incident_id": "payment-service_12",
+        "target_service": "payment-service",
+        "priority_score": 118.45,
+        "severity": "CRITICAL",
+        "occurrence_count": 210
+      },
+      "infrastructure_topology": {
+        "role": "payment-processing",
+        "downstream_dependencies": [
+          "otel-collector",
+          "postgres-db"
+        ],
+        "exposed_ports": [
+          "8083:8083"
+        ]
+      },
+      "service_health_status": {
+        "docker_status": "running",
+        "health_check": "healthy",
+        "dependency_states": {
+          "postgres-db": "healthy",
+          "otel-collector": "healthy"
+        }
+      },
+      "telemetry_evidence": {
+        "log_cluster_template": "java.lang.NullPointerException: Simulated NPE from ChaosController",
+        "log_samples": [
+          {
+            "timestamp": "2026-08-15T10:00:15Z",
+            "level": "ERROR",
+            "content": "java.lang.NullPointerException: Simulated NPE from ChaosController\n\tat com.autosre.paymentservice.chaos.ChaosController.throwError(ChaosController.java:<LINE>)",
+            "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "span_id": "00f067aa0ba902b7"
+          }
+        ],
+        "metrics_snapshot": [
+          {
+            "timestamp": "2026-08-15T10:00:20Z",
+            "cpu_percent": 12.4,
+            "memory_usage_bytes": 246530048,
+            "memory_usage_percent": 47.02
+          }
+        ]
+      },
+      "injected_chaos_context": {
+        "active_infrastructure_mutations": "Infrastructure orchestrator triggered restart_container on payment-service (duration: 65s)."
+      }
+    }
+  ]
+}
+```
+
+---
+
+### Key Architectural Guarantees for Phase 2 / Phase 3
+
+1. **Incident Identifier**:
+   - `incident_id` is always a unique composite string formatted as `<target_service>_<cluster_id>` (e.g. `payment-service_12`, `order-service_15`). Never a random UUID.
+2. **Prioritization & Sorting**:
+   - The `incidents` array is pre-sorted in descending order by `priority_score`.
+   - Priority scores account for occurrence velocity ($\log_{10}$ scale), container failure state penalties ($+50$ for exited/dead, $+30$ for unhealthy), statistical anomaly penalties ($\le 25$), and exponential time decay ($\le 20$).
+3. **Telemetry Evidence**:
+   - `log_cluster_template`: Sanitized Drain3 template derived from multi-line stitched exception blocks. The template ALWAYS contains the exception class and first error message (e.g. `java.lang.NullPointerException: X`), NEVER a standalone `at <*>` line.
+   - `log_samples`: Contains up to 5 most recent unmasked log records with preserved stack traces, log levels, and populated OpenTelemetry `trace_id` / `span_id` (target $\ge 80\%$ correlation for ERROR/WARN logs).
+   - `metrics_snapshot`: Contains up to 3 most recent host container metric points. If empty (for fresh-cluster incidents), Phase 2 indexers must gracefully handle `[]` without erroring.
+4. **ChromaDB Vector Fingerprinting Contract**:
+   - Phase 2 vector embedding key is mandated to be the `(target_service, log_cluster_template)` tuple.
+   - `trace_id` MUST be indexed as metadata for cross-span trace correlation across microservices.
+   - Validation rule: Any incident entry with an empty or blank `log_cluster_template` MUST be filtered out prior to ChromaDB indexing.
+5. **State Versioning & Reset Policy**:
+   - Running `python phase1_processor.py --reset-drain` is a destructive but expected operation for version 2 state migration. It resets `drain3_state.bin` to ensure clean, non-divergent cluster IDs after pre-stitcher logic changes.
+6. **Chaos Context**:
+   - `active_infrastructure_mutations` contains active faults when incidents overlap with a known scenario from `chaos_history.json` within $\pm 5$ minutes, or `""` if no mutations were active.

@@ -1,0 +1,54 @@
+import pytest
+import os
+import json
+
+@pytest.fixture
+def sample_incident_data():
+    return {
+        "system_context": {
+            "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
+            "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
+            "current_health_score": 95.0,
+            "active_warnings": 1
+        },
+        "incident_event": {
+            "incident_id": "auth-service_1",
+            "target_service": "auth-service",
+            "priority_score": 65.5,
+            "severity": "HIGH",
+            "occurrence_count": 5
+        },
+        "infrastructure_topology": {
+            "role": "authentication-service",
+            "downstream_dependencies": ["postgres-db", "redis"],
+            "exposed_ports": ["8081:8081"]
+        },
+        "service_health_status": {
+            "docker_status": "running",
+            "health_check": "healthy",
+            "dependency_states": {"postgres-db": "healthy", "redis": "healthy"}
+        },
+        "telemetry_evidence": {
+            "log_cluster_template": "java.lang.NullPointerException: Token secret missing",
+            "log_samples": [
+                {
+                    "timestamp": "2026-08-15T10:00:00Z",
+                    "level": "ERROR",
+                    "content": "java.lang.NullPointerException: Token secret missing\n\tat com.ecommerce.auth.AuthService.login(AuthService.java:42)",
+                    "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+                    "span_id": "00f067aa0ba902b7"
+                }
+            ],
+            "metrics_snapshot": [
+                {
+                    "timestamp": "2026-08-15T10:00:00Z",
+                    "cpu_percent": 12.5,
+                    "memory_usage_bytes": 104857600,
+                    "memory_usage_percent": 25.0
+                }
+            ]
+        },
+        "injected_chaos_context": {
+            "active_infrastructure_mutations": ""
+        }
+    }

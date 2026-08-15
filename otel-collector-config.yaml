@@ -9,6 +9,10 @@ receivers:
 processors:
   batch:
 
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
 exporters:
   debug:
     verbosity: detailed
@@ -18,8 +22,15 @@ exporters:
       insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp/v1/logs
+    headers:
+      X-Scope-OrgID: "default"
+    tls:
+      insecure: true
 
 service:
+  extensions: [health_check]
   pipelines:
     traces:
       receivers: [otlp]
@@ -32,4 +43,4 @@ service:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [otlphttp/loki, debug]

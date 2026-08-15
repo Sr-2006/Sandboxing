@@ -1,124 +1,202 @@
 import os
 import json
 import time
-import hashlib
 import tempfile
-from datetime import datetime
+import gc
+from datetime import datetime, timezone
 
-DUMP_DIR = "telemetry_dumps"
 OUTPUT_DIR = "frontend_data"
-MAX_RECORDS = 500
+RAW_TELEMETRY_FILE = os.path.join(OUTPUT_DIR, "raw_telemetry.json")
+TIME_SERIES_FILE = os.path.join(OUTPUT_DIR, "time_series.json")
+STATUS_FILE = os.path.join(OUTPUT_DIR, "status.json")
+ANALYTICS_FILE = os.path.join(OUTPUT_DIR, "analytics.json")
 
-def get_latest_batch_dir():
-    try:
-        dirs = [os.path.join(DUMP_DIR, d) for d in os.listdir(DUMP_DIR) if d.startswith("batch_")]
-        if not dirs:
-            return None
-        return max(dirs, key=os.path.getmtime)
-    except Exception:
-        return None
+MAX_TIME_SERIES_ENTRIES = 5000
+MAX_HEALTH_HISTORY_ENTRIES = 100
+SYNC_INTERVAL = 5.0
 
-def calculate_cpu_percent(stats):
-    try:
-        cpu_delta = stats['cpu_stats']['cpu_usage']['total_usage'] - stats['precpu_stats']['cpu_usage']['total_usage']
-        system_delta = stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
-        if system_delta > 0.0 and cpu_delta > 0.0:
-            return (cpu_delta / system_delta) * len(stats['cpu_stats']['cpu_usage']['percpu_usage']) * 100.0
-    except KeyError:
-        pass
-    return 0.0
+CRITICAL_SERVICES = {"api-gateway", "postgres-db", "otel-collector"}
 
-def atomic_write(filepath, data):
-    dir_name = os.path.dirname(filepath)
-    os.makedirs(dir_name, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(dir=dir_name)
-    with os.fdopen(fd, 'w') as f:
-        json.dump(data, f, indent=4)
-    os.replace(temp_path, filepath)
+# Static dependency mapping parsed from docker-compose.yml configuration
+SERVICE_DEPENDENCIES = {
+    "api-gateway": ["auth-service", "order-service", "payment-service", "otel-collector"],
+    "auth-service": ["postgres-db", "redis", "otel-collector"],
+    "order-service": ["postgres-db", "otel-collector"],
+    "payment-service": ["postgres-db", "otel-collector"],
+    "postgres-db": [],
+    "redis": [],
+    "rabbitmq": [],
+    "otel-collector": [],
+    "loki": [],
+    "prometheus": [],
+    "grafana": [],
+    "jaeger": []
+}
 
-def read_json(filepath):
-    if os.path.exists(filepath):
-        with open(filepath, 'r') as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                pass
-    return []
+from utils import atomic_write_json, read_json_file, parse_iso_dt
+
+def log_msg(msg: str):
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"[{now_iso}] [SYNC] {msg}", flush=True)
+
+def compute_container_health_score(container: dict) -> float:
+    score = 100.0
+    status = container.get("status", "running").lower()
+    health = (container.get("health") or "").lower()
+    anomaly_score = float(container.get("anomaly_score", 0.0))
+    mem_pct = float(container.get("memory_percent", 0.0))
+    cpu_pct = float(container.get("cpu_percent", 0.0))
+
+    if status in ("exited", "dead"):
+        score -= 10.0
+    if health == "unhealthy":
+        score -= 5.0
+    if anomaly_score > 0.0:
+        score -= min(30.0, anomaly_score * 10.0)
+    if mem_pct > 90.0 or cpu_pct > 95.0:
+        score -= 15.0
+
+    return max(0.0, min(100.0, score))
+
+def get_dependency_status(score: float) -> str:
+    if score >= 80.0:
+        return "healthy"
+    elif score >= 50.0:
+        return "degraded"
+    return "unhealthy"
+
+def sync_cycle():
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # 1. Read raw_telemetry.json
+    raw_data = read_json_file(RAW_TELEMETRY_FILE, {"generated_at": now_iso, "containers": []})
+    containers = raw_data.get("containers", [])
+
+    if not containers and not os.path.exists(RAW_TELEMETRY_FILE):
+        atomic_write_json(RAW_TELEMETRY_FILE, {"generated_at": now_iso, "containers": []})
+
+    # 2. Maintain time_series.json
+    time_series_data = read_json_file(TIME_SERIES_FILE, [])
+    new_ts_points = []
+    
+    for c in containers:
+        c_name = c.get("name")
+        new_ts_points.append({
+            "timestamp": now_iso,
+            "container": c_name,
+            "cpu_percent": c.get("cpu_percent", 0.0),
+            "memory_percent": c.get("memory_percent", 0.0),
+            "network_tx": c.get("network_tx_rate", 0.0),
+            "network_rx": c.get("network_rx_rate", 0.0)
+        })
+
+    combined_ts = time_series_data + new_ts_points
+    if len(combined_ts) > MAX_TIME_SERIES_ENTRIES:
+        combined_ts = combined_ts[-MAX_TIME_SERIES_ENTRIES:]
+    atomic_write_json(TIME_SERIES_FILE, combined_ts)
+
+    # 3. Compute per-container health scores
+    container_health_map = {}
+    for c in containers:
+        c_name = c.get("name")
+        c_score = compute_container_health_score(c)
+        container_health_map[c_name] = c_score
+
+    # 4. Compute global system health score & active warnings
+    total_weight = 0.0
+    weighted_score_sum = 0.0
+    active_warnings_count = 0
+
+    for c in containers:
+        c_name = c.get("name")
+        c_status = c.get("status", "running")
+        c_warnings = c.get("active_warnings", 0)
+        c_score = container_health_map.get(c_name, 100.0)
+
+        weight = 2.0 if c_name in CRITICAL_SERVICES else 1.0
+        weighted_score_sum += c_score * weight
+        total_weight += weight
+
+        if c_warnings > 0 or c_status != "running":
+            active_warnings_count += 1
+
+    system_health_score = round(weighted_score_sum / total_weight, 1) if total_weight > 0 else 100.0
+
+    # 5. Build status.json
+    services_list = []
+    for c in containers:
+        c_name = c.get("name")
+        c_status = c.get("status", "running")
+        c_health = (c.get("health") or "healthy") if c_status == "running" else "unhealthy"
+        c_score = container_health_map.get(c_name, 100.0)
+
+        # Build dependency states
+        deps = SERVICE_DEPENDENCIES.get(c_name, [])
+        dependency_states = {}
+        for dep in deps:
+            dep_score = container_health_map.get(dep, 100.0)
+            dependency_states[dep] = get_dependency_status(dep_score)
+
+        services_list.append({
+            "name": c_name,
+            "docker_status": c_status,
+            "health_check": c_health,
+            "cpu_percent": c.get("cpu_percent", 0.0),
+            "memory_percent": c.get("memory_percent", 0.0),
+            "anomaly_score": c.get("anomaly_score", 0.0),
+            "health_score": round(c_score, 1),
+            "dependency_states": dependency_states
+        })
+
+    status_payload = {
+        "timestamp": now_iso,
+        "system_health_score": system_health_score,
+        "active_warnings": active_warnings_count,
+        "services": services_list
+    }
+    atomic_write_json(STATUS_FILE, status_payload)
+
+    # 6. Update analytics.json
+    analytics_data = read_json_file(ANALYTICS_FILE, {})
+    health_history = analytics_data.get("health_history", [])
+    health_history.append({
+        "timestamp": now_iso,
+        "score": system_health_score
+    })
+    if len(health_history) > MAX_HEALTH_HISTORY_ENTRIES:
+        health_history = health_history[-MAX_HEALTH_HISTORY_ENTRIES:]
+
+    analytics_payload = {
+        "generated_at": now_iso,
+        "system_health_score": system_health_score,
+        "active_warnings": active_warnings_count,
+        "health_history": health_history
+    }
+    atomic_write_json(ANALYTICS_FILE, analytics_payload)
+    gc.collect()
+
+    log_msg(f"Sync complete. System Health: {system_health_score}, Active Warnings: {active_warnings_count}, Services: {len(services_list)}")
 
 def run_sync_loop():
+    log_msg("Starting Frontend Data Sync Loop...")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
+
+    # Initialize supporting schemas if absent
     empty_schemas = {
         "causality.json": {"root_cause": "", "confidence": 0, "evidence": []},
-        "cost_and_roi.json": {"estimated_cost": 0.0, "impact": "none"},
-        "analytics.json": {"system_health_score": 100, "active_warnings": 0}
+        "cost_and_roi.json": {"estimated_cost": 0.0, "impact": "none"}
     }
-    
     for filename, schema in empty_schemas.items():
         filepath = os.path.join(OUTPUT_DIR, filename)
         if not os.path.exists(filepath):
-            atomic_write(filepath, schema)
+            atomic_write_json(filepath, schema)
 
     while True:
-        latest_batch = get_latest_batch_dir()
-        if latest_batch:
-            time_series_path = os.path.join(OUTPUT_DIR, "time_series.json")
-            events_path = os.path.join(OUTPUT_DIR, "events_and_incidents.json")
-            status_path = os.path.join(OUTPUT_DIR, "status.json")
-
-            time_series_data = read_json(time_series_path)
-            events_data = read_json(events_path)
-
-            network_state_file = os.path.join(latest_batch, "network_state.json")
-            if os.path.exists(network_state_file):
-                with open(network_state_file, 'r') as f:
-                    status_data = json.load(f)
-                atomic_write(status_path, status_data)
-
-            for filename in os.listdir(latest_batch):
-                filepath = os.path.join(latest_batch, filename)
-                
-                if filename.endswith("_metrics.json"):
-                    with open(filepath, 'r') as f:
-                        stats = json.load(f)
-                    
-                    container_name = filename.replace("_metrics.json", "")
-                    cpu_pct = calculate_cpu_percent(stats)
-                    mem_usage = stats.get('memory_stats', {}).get('usage', 0)
-                    
-                    metric_entry = {
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "container": container_name,
-                        "cpu_percent": cpu_pct,
-                        "memory_usage": mem_usage
-                    }
-                    time_series_data.append(metric_entry)
-
-                elif filename.endswith("_logs.txt"):
-                    with open(filepath, 'r') as f:
-                        log_content = f.read().strip()
-                    
-                    if log_content:
-                        container_name = filename.replace("_logs.txt", "")
-                        log_hash = hashlib.sha256(log_content.encode()).hexdigest()
-                        
-                        event_entry = {
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "container": container_name,
-                            "log_hash": log_hash,
-                            "content": log_content
-                        }
-                        
-                        if not any(e.get("log_hash") == log_hash for e in events_data):
-                            events_data.append(event_entry)
-
-            time_series_data = time_series_data[-MAX_RECORDS:]
-            events_data = events_data[-MAX_RECORDS:]
-
-            atomic_write(time_series_path, time_series_data)
-            atomic_write(events_path, events_data)
-
-        time.sleep(5)
+        try:
+            sync_cycle()
+        except Exception as e:
+            log_msg(f"Error during sync cycle: {e}")
+        time.sleep(SYNC_INTERVAL)
 
 if __name__ == "__main__":
     run_sync_loop()

@@ -1,0 +1,7 @@
+{
+  "trace_ratio_errwarn": 1.0,
+  "redis_med_high": 0,
+  "rabbitmq_in_top5": 0,
+  "top5_at_star_only": 0,
+  "schema_ok": true
+}

@@ -1,31 +1,31 @@
 {
-  "timestamp": "2026-08-15T14:51:36Z",
-  "system_health_score": 91.7,
-  "active_warnings": 2,
+  "timestamp": "2026-08-15T17:50:23Z",
+  "system_health_score": 95.0,
+  "active_warnings": 7,
   "services": [
     {
       "name": "api-gateway",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 0.14,
-      "memory_percent": 56.58,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
       "anomaly_score": 0.0,
-      "health_score": 100.0,
+      "health_score": 95.0,
       "dependency_states": {
         "auth-service": "healthy",
-        "order-service": "degraded",
+        "order-service": "healthy",
         "payment-service": "healthy",
         "otel-collector": "healthy"
       }
     },
     {
       "name": "payment-service",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 8.56,
-      "memory_percent": 45.51,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
       "anomaly_score": 0.0,
-      "health_score": 100.0,
+      "health_score": 95.0,
       "dependency_states": {
         "postgres-db": "healthy",
         "otel-collector": "healthy"
@@ -33,12 +33,12 @@
     },
     {
       "name": "order-service",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 0.19,
-      "memory_percent": 47.13,
-      "anomaly_score": 2.93,
-      "health_score": 70.7,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
+      "anomaly_score": 0.0,
+      "health_score": 95.0,
       "dependency_states": {
         "postgres-db": "healthy",
         "otel-collector": "healthy"
@@ -46,46 +46,46 @@
     },
     {
       "name": "auth-service",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 0.28,
-      "memory_percent": 99.31,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
       "anomaly_score": 0.0,
-      "health_score": 85.0,
+      "health_score": 95.0,
       "dependency_states": {
         "postgres-db": "healthy",
-        "redis": "degraded",
+        "redis": "healthy",
         "otel-collector": "healthy"
       }
     },
     {
       "name": "rabbitmq",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 0.82,
-      "memory_percent": 27.95,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
       "anomaly_score": 0.0,
-      "health_score": 100.0,
+      "health_score": 95.0,
       "dependency_states": {}
     },
     {
       "name": "postgres-db",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 0.04,
-      "memory_percent": 31.6,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
       "anomaly_score": 0.0,
-      "health_score": 100.0,
+      "health_score": 95.0,
       "dependency_states": {}
     },
     {
       "name": "redis",
-      "docker_status": "running",
-      "health_check": "healthy",
-      "cpu_percent": 0.6,
-      "memory_percent": 3.58,
-      "anomaly_score": 4.36,
-      "health_score": 70.0,
+      "docker_status": "paused",
+      "health_check": "unhealthy",
+      "cpu_percent": 0.0,
+      "memory_percent": 0.0,
+      "anomaly_score": 0.0,
+      "health_score": 95.0,
       "dependency_states": {}
     }
   ]

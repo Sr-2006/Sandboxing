@@ -1,407 +1,407 @@
 {
-  "generated_at": "2026-08-15T14:51:36Z",
-  "system_health_score": 91.7,
-  "active_warnings": 2,
+  "generated_at": "2026-08-15T17:50:23Z",
+  "system_health_score": 95.0,
+  "active_warnings": 7,
   "health_history": [
     {
-      "timestamp": "2026-08-15T14:47:10Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:15Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:20Z",
-      "score": 79.1
-    },
-    {
-      "timestamp": "2026-08-15T14:47:21Z",
+      "timestamp": "2026-08-15T17:46:05Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:47:25Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:26Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:31Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:31Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:36Z",
+      "timestamp": "2026-08-15T17:46:09Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:47:36Z",
+      "timestamp": "2026-08-15T17:46:10Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:47:41Z",
-      "score": 91.7
-    },
-    {
-      "timestamp": "2026-08-15T14:47:41Z",
-      "score": 91.7
-    },
-    {
-      "timestamp": "2026-08-15T14:47:46Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:46Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:47:52Z",
-      "score": 87.0
-    },
-    {
-      "timestamp": "2026-08-15T14:47:52Z",
-      "score": 87.0
-    },
-    {
-      "timestamp": "2026-08-15T14:47:57Z",
-      "score": 91.7
-    },
-    {
-      "timestamp": "2026-08-15T14:48:02Z",
-      "score": 92.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:02Z",
-      "score": 92.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:07Z",
+      "timestamp": "2026-08-15T17:46:14Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:48:07Z",
+      "timestamp": "2026-08-15T17:46:15Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:48:12Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:12Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:17Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:18Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:23Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:23Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:28Z",
+      "timestamp": "2026-08-15T17:46:19Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:48:28Z",
+      "timestamp": "2026-08-15T17:46:21Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:48:33Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:33Z",
-      "score": 85.0
-    },
-    {
-      "timestamp": "2026-08-15T14:48:38Z",
-      "score": 93.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:39Z",
-      "score": 93.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:43Z",
-      "score": 95.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:44Z",
-      "score": 95.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:48Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:49Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:54Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:54Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:48:59Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:00Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:04Z",
+      "timestamp": "2026-08-15T17:46:24Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:49:05Z",
+      "timestamp": "2026-08-15T17:46:26Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:49:09Z",
-      "score": 95.1
-    },
-    {
-      "timestamp": "2026-08-15T14:49:10Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:14Z",
+      "timestamp": "2026-08-15T17:46:30Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:49:15Z",
+      "timestamp": "2026-08-15T17:46:31Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:49:20Z",
+      "timestamp": "2026-08-15T17:46:35Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:49:20Z",
+      "timestamp": "2026-08-15T17:46:36Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:49:25Z",
-      "score": 91.9
-    },
-    {
-      "timestamp": "2026-08-15T14:49:26Z",
-      "score": 91.9
-    },
-    {
-      "timestamp": "2026-08-15T14:49:30Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:31Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:35Z",
-      "score": 90.0
-    },
-    {
-      "timestamp": "2026-08-15T14:49:36Z",
-      "score": 90.0
-    },
-    {
-      "timestamp": "2026-08-15T14:49:41Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:41Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:46Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:47Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:51Z",
-      "score": 95.2
-    },
-    {
-      "timestamp": "2026-08-15T14:49:52Z",
-      "score": 95.2
-    },
-    {
-      "timestamp": "2026-08-15T14:49:56Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:49:57Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:50:02Z",
-      "score": 95.5
-    },
-    {
-      "timestamp": "2026-08-15T14:50:02Z",
-      "score": 95.5
-    },
-    {
-      "timestamp": "2026-08-15T14:50:07Z",
+      "timestamp": "2026-08-15T17:46:40Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:07Z",
+      "timestamp": "2026-08-15T17:46:41Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:12Z",
-      "score": 86.7
-    },
-    {
-      "timestamp": "2026-08-15T14:50:13Z",
-      "score": 86.7
-    },
-    {
-      "timestamp": "2026-08-15T14:50:17Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:50:18Z",
-      "score": 88.3
-    },
-    {
-      "timestamp": "2026-08-15T14:50:22Z",
-      "score": 90.5
-    },
-    {
-      "timestamp": "2026-08-15T14:50:23Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:50:28Z",
-      "score": 95.2
-    },
-    {
-      "timestamp": "2026-08-15T14:50:28Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:50:33Z",
-      "score": 98.3
-    },
-    {
-      "timestamp": "2026-08-15T14:50:33Z",
-      "score": 93.4
-    },
-    {
-      "timestamp": "2026-08-15T14:50:38Z",
+      "timestamp": "2026-08-15T17:46:45Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:39Z",
+      "timestamp": "2026-08-15T17:46:47Z",
       "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:43Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:46:50Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:44Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:46:52Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:49Z",
-      "score": 92.2
+      "timestamp": "2026-08-15T17:46:56Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:49Z",
-      "score": 92.2
+      "timestamp": "2026-08-15T17:46:57Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:54Z",
-      "score": 92.1
+      "timestamp": "2026-08-15T17:47:01Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:54Z",
-      "score": 92.1
+      "timestamp": "2026-08-15T17:47:02Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:59Z",
-      "score": 85.5
+      "timestamp": "2026-08-15T17:47:06Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:50:59Z",
-      "score": 85.5
+      "timestamp": "2026-08-15T17:47:08Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:04Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:47:11Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:05Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:47:13Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:10Z",
-      "score": 90.6
+      "timestamp": "2026-08-15T17:47:16Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:10Z",
-      "score": 90.6
+      "timestamp": "2026-08-15T17:47:18Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:15Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:47:21Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:15Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:47:23Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:20Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:47:27Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:20Z",
-      "score": 98.3
+      "timestamp": "2026-08-15T17:47:29Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:25Z",
-      "score": 88.3
+      "timestamp": "2026-08-15T17:47:32Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:25Z",
-      "score": 88.3
+      "timestamp": "2026-08-15T17:47:34Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:31Z",
-      "score": 88.7
+      "timestamp": "2026-08-15T17:47:37Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:36Z",
-      "score": 91.7
+      "timestamp": "2026-08-15T17:47:39Z",
+      "score": 95.0
     },
     {
-      "timestamp": "2026-08-15T14:51:36Z",
-      "score": 91.7
+      "timestamp": "2026-08-15T17:47:42Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:47:44Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:47:48Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:47:50Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:47:53Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:47:55Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:47:58Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:00Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:03Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:05Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:08Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:11Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:13Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:16Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:19Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:21Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:24Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:26Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:29Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:31Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:34Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:37Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:39Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:42Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:44Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:47Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:50Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:52Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:55Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:48:58Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:00Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:03Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:05Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:08Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:10Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:13Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:15Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:19Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:21Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:24Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:26Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:29Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:31Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:34Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:36Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:40Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:41Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:45Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:46Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:50Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:52Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:55Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:49:57Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:01Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:02Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:06Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:07Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:11Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:12Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:16Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:17Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:21Z",
+      "score": 95.0
+    },
+    {
+      "timestamp": "2026-08-15T17:50:23Z",
+      "score": 95.0
     }
   ]
 }

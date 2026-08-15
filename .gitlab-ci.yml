@@ -29,7 +29,7 @@ lint:
     - pip install --no-cache-dir -r requirements.txt
   script:
     - ruff check .
-    - mypy --ignore-missing-imports chaos_orchestrator.py phase1_processor.py package_ml_dataset.py validate_10.py
+    - mypy --config-file pyproject.toml chaos_orchestrator.py phase1_processor.py package_ml_dataset.py validate_10.py
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH

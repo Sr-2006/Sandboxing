@@ -256,10 +256,10 @@ def check_drain_version_and_reset_if_needed(force_reset: bool = False):
         should_reset = True
 
     if should_reset:
-        for f in [DRAIN3_STATE_FILE, VERSION_HEADER_FILE]:
-            if os.path.exists(f):
+        for file_path in [DRAIN3_STATE_FILE, VERSION_HEADER_FILE]:
+            if os.path.exists(file_path):
                 try:
-                    os.remove(f)
+                    os.remove(file_path)
                 except Exception:
                     pass
         print(f"[+] Version migration / --reset-drain: Reset Drain3 cluster state for v{PROCESSOR_VERSION}.")

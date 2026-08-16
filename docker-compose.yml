@@ -117,11 +117,11 @@ services:
         limits:
           memory: 256M
     restart: "on-failure:3"
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:13133/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # NOTE: no healthcheck here — the otel/opentelemetry-collector-contrib image
+    # is scratch-based (no shell, no wget/curl), so an in-container healthcheck
+    # command can never execute. The health_check extension on :13133 is still
+    # enabled for external probes; `docker compose up --wait` treats a running
+    # container without a healthcheck as ready.
     depends_on:
       - jaeger
 

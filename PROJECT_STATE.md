@@ -5,15 +5,15 @@
 | Attribute | Details |
 | :--- | :--- |
 | **Project Name** | Smart Horizon Hackathon - V2 Microservices & Auto-SRE Platform |
-| **Last Modified Date** | August 16, 2026 |
-| **Current Phase** | Volume 2 Hardening Completed — 10/10 gap remediation (unified chaos schema, chaos endpoint lockdown, dataset lineage, Prometheus provisioning), Fully Validated & Ready for Phase 2 (ChromaDB Fingerprinting & Multi-Agent RCA) |
+| **Last Modified Date** | August 17, 2026 |
+| **Current Phase** | Volume 2 Hardening Completed & **End-to-End CI Verified** — 10/10 gap remediation (unified chaos schema, chaos endpoint lockdown, dataset lineage, Prometheus provisioning), fully merged to `main`, GitLab pipeline [#2764157052](https://gitlab.com/sre-group6103633/sre-project/-/pipelines/2764157052) fully green (8 jobs incl. integration + validate). Ready for Phase 2 (ChromaDB Fingerprinting & Multi-Agent RCA) |
 | **Repository State** | Dockerized microservices stack with end-to-end distributed telemetry and observability, OpenTelemetry MDC trace propagation, Logstash JSON logging, Grafana Loki log pipeline, Prometheus metrics (provisioned datasource + system-overview dashboard), Jaeger traces, 13-type chaos orchestration catalog (unified CHAOS_EVENT_SCHEMA ground truth), versioned Drain3 clustering (v2), dynamic priority score engine, validated Pydantic v2 Unified Master Dataset with DatasetMeta lineage (dataset_version, processor_version, git_sha, source_files), and comprehensive 29-test pytest suite (100% pass). Hardened for 16GB RAM / RTX 3050. |
 
 ---
 
 ## 1. System Architecture & Component Inventory
 
-The Auto-SRE system is an event-driven, containerized microservices platform built on Java 21/17 (Spring Boot 3.2.x) and Python 3.11, instrumented for full-stack observability, active fault injection, and automated incident clustering.
+The Auto-SRE system is an event-driven, containerized microservices platform built on Java 21 (Spring Boot 3.2.x) and Python 3.11, instrumented for full-stack observability, active fault injection, and automated incident clustering.
 
 ### Microservices Infrastructure
 
@@ -28,12 +28,12 @@ The Auto-SRE system is an event-driven, containerized microservices platform bui
     *   **Responsibilities:** User registration, login authentication, BCrypt password hashing, JWT minting/validation, Redis session caching, and PostgreSQL persistence.
     *   **Tracing & MDC:** Standardized with `TraceMDCFilter.java` and `@ControllerAdvice GlobalExceptionHandler.java` (`com.ecommerce.auth.config`).
 *   **Order Service:**
-    *   **Technology:** Spring Boot 3.2.3 (Servlet / Tomcat, Java 17).
+    *   **Technology:** Spring Boot 3.2.3 (Servlet / Tomcat, Java 21).
     *   **Port:** `8082` (internal).
     *   **Responsibilities:** Order lifecycle management, state transitions, RabbitMQ asynchronous event publishing, and PostgreSQL persistence.
     *   **Tracing & MDC:** Standardized with `TraceMDCFilter.java` and `@ControllerAdvice GlobalExceptionHandler.java` (`com.autosre.orderservice.config`).
 *   **Payment Service:**
-    *   **Technology:** Spring Boot 3.2.3 (Servlet / Tomcat, Java 17).
+    *   **Technology:** Spring Boot 3.2.3 (Servlet / Tomcat, Java 21).
     *   **Port:** `8083` (internal).
     *   **Responsibilities:** Payment processing, transaction ledger management, database query executions, and HikariCP connection management.
     *   **Tracing & MDC:** Standardized with `TraceMDCFilter.java` and `@ControllerAdvice GlobalExceptionHandler.java` (`com.autosre.paymentservice.config`).

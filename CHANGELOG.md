@@ -5,13 +5,14 @@ This document maintains a real-time record of all development changes, architect
 ---
 
 ## 📌 Active Development Snapshot
-* **Current Active Branch:** `volume-2`
+* **Current Active Branch:** `main` (`volume-2` fully merged at `ee62ac6`)
 * **Base Upstream Branch:** `main` / `phase-4`
 * **GitLab Remote (`origin`):** `https://gitlab.com/sre-group6103633/sre-project.git`
 * **GitHub Remote (`asre`):** `https://github.com/sk101-art/asre.git`
 * **Static Acceptance Score:** `18/18 PASS (100%)` via `validate_10.py --static`
 * **Unit & Contract Tests:** `29/29 PASS (100%)` via `pytest -v tests/`
 * **Code Standards:** Clean via `ruff check .` & `mypy`
+* **End-to-End CI:** 🟢 **FULLY GREEN** — pipeline [#2764157052](https://gitlab.com/sre-group6103633/sre-project/-/pipelines/2764157052) (commit `bd852dd`, branch `main`): all 8 jobs passed including the **integration stage** (full Docker Compose stack, load generation, chaos smoke, Phase 1 processing, ML dataset packaging).
 
 ---
 
@@ -123,20 +124,26 @@ This document maintains a real-time record of all development changes, architect
 > **Note:** Java test suites are compile-verified locally (IDE language server, zero errors). Execution verification runs via GitLab CI (`mvn test`, `.gitlab-ci.yml` stage `test-java`) since no local Maven install exists on this host.
 >
 > ✅ **CI-VERIFIED:** GitLab pipeline [#2764112083](https://gitlab.com/sre-group6103633/sre-project/-/pipelines/2764112083) (commit `b8a71a61`, branch `volume-2`) passed all 7 jobs / 72 tests: `lint`, `test-python`, `test-java` (all 4 services), and `validate`. All Java test suites are now execution-verified in CI.
+>
+> 🏆 **END-TO-END VERIFIED (10/10):** GitLab pipeline [#2764157052](https://gitlab.com/sre-group6103633/sre-project/-/pipelines/2764157052) (commit `bd852dd`, branch `main`) — **all 8 jobs green**, including the `integration` stage for the first time: Docker Compose stack boots healthy (postgres, rabbitmq, redis, 4 Java services, otel-collector, prometheus, loki, grafana), 60s load generation, chaos smoke injection, Phase 1 log processing, and ML dataset packaging all succeed inside CI.
 
 ---
 
 ## 📝 Ongoing Developer Notes & Next Actions
 1. **Repository Sync:**
-   - All changes committed on local branch `volume-2` (commits `46652f6` gap remediation, `ee556be` security tests & guardrails, `a111d85` changelog/run.sh corrections, plus CI fix commits below).
-   - Pushed to GitLab `origin/volume-2`. **Pipeline #2764112083 fully green** (7 jobs, 72 tests).
+   - `volume-2` merged into `main` (merge commit `ee62ac6`); `main` is now the active branch.
+   - **Pipeline #2764157052 fully green on `main`** (8 jobs incl. integration + validate).
    - Available to sync to GitHub `asre/main` when ready.
-   - **CI fix commits:**
+   - **CI fix commits (volume-2 era):**
      - `6975b7e` — corrected invalid type-stub pins in `requirements.txt` (`types-requests`, `types-PyYAML`) that broke the `lint` stage dependency install.
      - `8330b4a` — `GlobalExceptionHandler` now preserves `ResponseStatusException` status (auth-service chaos 403s were being swallowed as 500 by the generic `Exception` handler; fixed in auth/order/payment services).
      - `b8a71a6` — `validate_10.py` handles missing `git` binary in `python:3.11-slim` CI image (archive checkout) with a disk-check fallback.
+   - **Integration-stage fix commits (on `main`):**
+     - `4baa4a6` — integration job: added `gcc musl-dev python3-dev linux-headers make` to `apk add` so `psutil` builds from source on Alpine (Alpine Python reports `linux_x86_64`, so pip cannot use musllinux wheels).
+     - `9b02ec7` — `order-service`/`payment-service` Dockerfiles bumped `maven:3.9-eclipse-temurin-17` → `21` and `eclipse-temurin:17-jre` → `21-jre-alpine` (poms target Java 21; builds failed with "release version 21 not supported").
+     - `2c5e174` — removed the `otel-collector` compose healthcheck: the `otel/opentelemetry-collector-contrib` image is scratch-based (no shell/`wget`), so a `CMD wget` healthcheck can never pass and `docker compose up --wait` aborted.
+     - `bd852dd` — `validate_10.py` `no_generated_artifacts_tracked` fallback is now gitignore-aware: the validate job reuses the integration build dir, so gitignored `frontend_data/*.json` exist on disk but are untracked.
 2. **Next Steps / Roadmap:**
-   - Open a merge request `volume-2` → `main` on GitLab (integration stage runs on `main`).
    - Multi-Agent RCA Engine implementation.
    - ChromaDB vector collection indexing using `git_sha` and `(target_service, log_cluster_template)`.
    - UI / Live Dashboard integrations.

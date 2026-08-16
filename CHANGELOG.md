@@ -121,16 +121,22 @@ This document maintains a real-time record of all development changes, architect
 | **Linter & Typing** | `ruff` + `mypy` | Strict check across Python codebase with `pyproject.toml` | 🟢 100% Clean |
 
 > **Note:** Java test suites are compile-verified locally (IDE language server, zero errors). Execution verification runs via GitLab CI (`mvn test`, `.gitlab-ci.yml` stage `test-java`) since no local Maven install exists on this host.
+>
+> ✅ **CI-VERIFIED:** GitLab pipeline [#2764112083](https://gitlab.com/sre-group6103633/sre-project/-/pipelines/2764112083) (commit `b8a71a61`, branch `volume-2`) passed all 7 jobs / 72 tests: `lint`, `test-python`, `test-java` (all 4 services), and `validate`. All Java test suites are now execution-verified in CI.
 
 ---
 
 ## 📝 Ongoing Developer Notes & Next Actions
 1. **Repository Sync:**
-   - All changes committed on local branch `volume-2` (commits `46652f6` gap remediation, `ee556be` security tests & guardrails, plus this changelog correction).
-   - Pushed to GitLab `origin/volume-2` (remote was previously 2 commits behind at `351bc71`).
+   - All changes committed on local branch `volume-2` (commits `46652f6` gap remediation, `ee556be` security tests & guardrails, `a111d85` changelog/run.sh corrections, plus CI fix commits below).
+   - Pushed to GitLab `origin/volume-2`. **Pipeline #2764112083 fully green** (7 jobs, 72 tests).
    - Available to sync to GitHub `asre/main` when ready.
-   - **Note:** Java `ChaosControllerSecurityTest` suites are compile-verified locally; execution-verification happens via GitLab CI `mvn test` (no local Maven install on this host).
+   - **CI fix commits:**
+     - `6975b7e` — corrected invalid type-stub pins in `requirements.txt` (`types-requests`, `types-PyYAML`) that broke the `lint` stage dependency install.
+     - `8330b4a` — `GlobalExceptionHandler` now preserves `ResponseStatusException` status (auth-service chaos 403s were being swallowed as 500 by the generic `Exception` handler; fixed in auth/order/payment services).
+     - `b8a71a6` — `validate_10.py` handles missing `git` binary in `python:3.11-slim` CI image (archive checkout) with a disk-check fallback.
 2. **Next Steps / Roadmap:**
+   - Open a merge request `volume-2` → `main` on GitLab (integration stage runs on `main`).
    - Multi-Agent RCA Engine implementation.
    - ChromaDB vector collection indexing using `git_sha` and `(target_service, log_cluster_template)`.
    - UI / Live Dashboard integrations.

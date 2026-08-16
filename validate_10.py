@@ -43,10 +43,20 @@ def static_gates():
     gate("env_gitignored", ".env" in read(".gitignore"))
 
     # WS3: generated artifacts not tracked
-    tracked = subprocess.run(["git", "ls-files", "frontend_data/", "validation_report.json"],
-                             capture_output=True, text=True, cwd=ROOT).stdout.split()
-    bad = [f for f in tracked if f.endswith((".json", ".bin", ".meta", ".log"))]
-    gate("no_generated_artifacts_tracked", not bad, f"tracked={bad[:5]}" if bad else "clean")
+    try:
+        tracked = subprocess.run(["git", "ls-files", "frontend_data/", "validation_report.json"],
+                                 capture_output=True, text=True, cwd=ROOT).stdout.split()
+        bad = [f for f in tracked if f.endswith((".json", ".bin", ".meta", ".log"))]
+        gate("no_generated_artifacts_tracked", not bad, f"tracked={bad[:5]}" if bad else "clean")
+    except FileNotFoundError:
+        # git unavailable (e.g., slim CI image with archive checkout): in an
+        # archive checkout only tracked files exist, so a disk check is equivalent.
+        present = [str(p.relative_to(ROOT)) for p in (ROOT / "frontend_data").glob("*")
+                   if p.suffix in (".json", ".bin", ".meta", ".log")]
+        if (ROOT / "validation_report.json").exists():
+            present.append("validation_report.json")
+        gate("no_generated_artifacts_tracked", not present,
+             f"present={present[:5]}" if present else "clean (no git; disk check)")
 
     # WS3: pinned python deps
     unpinned = [line.strip() for line in read("requirements.txt").splitlines()

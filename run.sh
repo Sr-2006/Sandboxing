@@ -17,7 +17,10 @@ if [ ! -f .env ]; then
 fi
 
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs -0) || true
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
 fi
 
 # Preflight: Check RAM on Linux/Mac

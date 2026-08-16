@@ -10,7 +10,7 @@ This document maintains a real-time record of all development changes, architect
 * **GitLab Remote (`origin`):** `https://gitlab.com/sre-group6103633/sre-project.git`
 * **GitHub Remote (`asre`):** `https://github.com/sk101-art/asre.git`
 * **Static Acceptance Score:** `18/18 PASS (100%)` via `validate_10.py --static`
-* **Unit & Contract Tests:** `28/28 PASS (100%)` via `pytest -v tests/`
+* **Unit & Contract Tests:** `29/29 PASS (100%)` via `pytest -v tests/`
 * **Code Standards:** Clean via `ruff check .` & `mypy`
 
 ---
@@ -46,14 +46,15 @@ This document maintains a real-time record of all development changes, architect
   * Updated `ChaosController.java` in all 4 microservices (`api-gateway`, `auth-service`, `order-service`, `payment-service`) with:
     * `@ConditionalOnProperty(name = "chaos.enabled", havingValue = "true", matchIfMissing = false)`
     * `X-Chaos-Token` header check against `chaos.token` (fails with `403 Forbidden` if missing/invalid).
-  * Updated `application.yml` in all 4 services with `chaos.enabled: ${CHAOS_ENABLED:false}` and `chaos.token: ${CHAOS_SECRET:dev-chaos-token}`.
+    * **Fail-closed validation:** if `chaos.token` is unconfigured/empty, all chaos endpoints return `403 Forbidden` (no open-by-default behavior).
+  * Updated `application.yml` in all 4 services with `chaos.enabled: ${CHAOS_ENABLED:false}` and `chaos.token: ${CHAOS_SECRET:}` (empty default — token must be supplied via environment; no committed secret).
 
 ### 3. Docker Compose & Environment Hardening (GAP 8 & GAP 3)
 * **Goal:** Remove default hardcoded secrets and disable chaos mode by default.
 * **Changes:**
   * Updated [`docker-compose.yml`](file:///c:/Users/sujay/Downloads/complex/auto-sre-platform/docker-compose.yml):
     * `CHAOS_ENABLED: "${ENABLE_CHAOS:-false}"`
-    * `CHAOS_SECRET: "${CHAOS_SECRET:-dev-chaos-token}"`
+    * `CHAOS_SECRET: "${CHAOS_SECRET:?CHAOS_SECRET must be set in .env}"` (required-variable pattern — stack refuses to start without an explicit secret)
     * `JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env}"`
   * Added `CHAOS_SECRET` to committed [`.env.example`](file:///c:/Users/sujay/Downloads/complex/auto-sre-platform/.env.example).
   * In [`chaos_orchestrator.py`](file:///c:/Users/sujay/Downloads/complex/auto-sre-platform/chaos_orchestrator.py), replaced hardcoded credentials with `os.environ.get("RABBITMQ_DEFAULT_USER", "guest")` and `os.environ.get("RABBITMQ_DEFAULT_PASS", "guest")`.
@@ -119,13 +120,16 @@ This document maintains a real-time record of all development changes, architect
 | **Static Gates** | `validate_10.py` | 18 Static Acceptance Gates | 🟢 18/18 PASS |
 | **Linter & Typing** | `ruff` + `mypy` | Strict check across Python codebase with `pyproject.toml` | 🟢 100% Clean |
 
+> **Note:** Java test suites are compile-verified locally (IDE language server, zero errors). Execution verification runs via GitLab CI (`mvn test`, `.gitlab-ci.yml` stage `test-java`) since no local Maven install exists on this host.
+
 ---
 
 ## 📝 Ongoing Developer Notes & Next Actions
 1. **Repository Sync:**
-   - Changes staged & committed on local branch `volume-2`.
-   - Pushed to GitLab `origin/volume-2`.
-   - Available to sync to GitHub `asre/main`.
+   - All changes committed on local branch `volume-2` (commits `46652f6` gap remediation, `ee556be` security tests & guardrails, plus this changelog correction).
+   - Pushed to GitLab `origin/volume-2` (remote was previously 2 commits behind at `351bc71`).
+   - Available to sync to GitHub `asre/main` when ready.
+   - **Note:** Java `ChaosControllerSecurityTest` suites are compile-verified locally; execution-verification happens via GitLab CI `mvn test` (no local Maven install on this host).
 2. **Next Steps / Roadmap:**
    - Multi-Agent RCA Engine implementation.
    - ChromaDB vector collection indexing using `git_sha` and `(target_service, log_cluster_template)`.

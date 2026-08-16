@@ -166,6 +166,8 @@ services:
     build:
       context: ./api-gateway
     container_name: api-gateway
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=edge-routing-and-rate-limiting"
@@ -198,6 +200,8 @@ services:
     build:
       context: ./auth-service
     container_name: auth-service
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=authentication-service"
@@ -231,6 +235,8 @@ services:
     build:
       context: ./order-service
     container_name: order-service
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=order-processing"
@@ -261,6 +267,8 @@ services:
     build:
       context: ./payment-service
     container_name: payment-service
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=payment-processing"

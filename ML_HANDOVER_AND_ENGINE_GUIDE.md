@@ -252,6 +252,7 @@ The platform includes an automated chaos simulation suite capable of generating 
 | `otel-collector` | Container Pause | `docker pause otel-collector` | Microservices log `Failed to export spans. Connection reset`. |
 | Any Container | CPU Throttling | `docker update --cpu-period=100000 --cpu-quota=10000 <name>` | Severe CPU throttling ($0.1$ core limit), latency spikes, timeout cascades. |
 | Any Container | Memory Limit Constraint | `docker update --memory=384m <name>` | Memory pressure, swap thrashing, potential OOM Kill (Exit code 137). |
+| Microservices | Network Latency Injection | `tc qdisc add dev eth0 root netem delay 200ms` | Added 200ms network roundtrip delay (requires `cap_add: [NET_ADMIN]`). |
 
 ---
 

@@ -25,3 +25,7 @@ jwt:
 management:
   tracing:
     enabled: false
+
+chaos:
+  enabled: true
+  token: test-secret-token

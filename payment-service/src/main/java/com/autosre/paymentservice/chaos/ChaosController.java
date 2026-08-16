@@ -1,9 +1,12 @@
 package com.autosre.paymentservice.chaos;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.web.client.ResourceAccessException;
@@ -17,11 +20,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestController
 @RequestMapping("/chaos")
-@ConditionalOnProperty(name = "chaos.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "chaos.enabled", havingValue = "true", matchIfMissing = false)
 public class ChaosController {
 
     private static final List<byte[][]> memoryLeakList = new CopyOnWriteArrayList<>();
     private static final List<Thread> deadlockThreads = new CopyOnWriteArrayList<>();
+
+    @Value("${chaos.token:dev-chaos-token}")
+    private String chaosToken;
 
     @Autowired(required = false)
     private JdbcTemplate jdbcTemplate;
@@ -29,8 +35,19 @@ public class ChaosController {
     @Autowired(required = false)
     private DataSource dataSource;
 
+    private void validateToken(String headerToken) {
+        if (chaosToken != null && !chaosToken.trim().isEmpty()) {
+            if (headerToken == null || !chaosToken.equals(headerToken.trim())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden: Invalid or missing X-Chaos-Token");
+            }
+        }
+    }
+
     @GetMapping("/slow")
-    public ResponseEntity<?> slow(@RequestParam(defaultValue = "5000") long delayMs) {
+    public ResponseEntity<?> slow(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token,
+            @RequestParam(defaultValue = "5000") long delayMs) {
+        validateToken(token);
         try {
             Thread.sleep(delayMs);
         } catch (InterruptedException e) {
@@ -43,7 +60,10 @@ public class ChaosController {
     }
 
     @GetMapping("/throw")
-    public ResponseEntity<?> throwError(@RequestParam String type) {
+    public ResponseEntity<?> throwError(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token,
+            @RequestParam String type) {
+        validateToken(token);
         if ("null-pointer".equalsIgnoreCase(type)) {
             throw new NullPointerException("Simulated NPE from ChaosController");
         } else if ("sql-timeout".equalsIgnoreCase(type)) {
@@ -58,7 +78,10 @@ public class ChaosController {
     }
 
     @GetMapping("/memory-leak")
-    public ResponseEntity<?> memoryLeak(@RequestParam(defaultValue = "200") int mb) {
+    public ResponseEntity<?> memoryLeak(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token,
+            @RequestParam(defaultValue = "200") int mb) {
+        validateToken(token);
         try {
             for (int i = 0; i < mb; i++) {
                 byte[][] chunk = new byte[1024][1024]; // 1MB allocation
@@ -77,7 +100,9 @@ public class ChaosController {
     }
 
     @GetMapping("/memory-leak/clear")
-    public ResponseEntity<?> clearMemoryLeak() {
+    public ResponseEntity<?> clearMemoryLeak(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
+        validateToken(token);
         memoryLeakList.clear();
         System.gc();
         Map<String, Object> response = new HashMap<>();
@@ -86,7 +111,9 @@ public class ChaosController {
     }
 
     @GetMapping("/deadlock")
-    public ResponseEntity<?> deadlock() {
+    public ResponseEntity<?> deadlock(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
+        validateToken(token);
         Object lock1 = new Object();
         Object lock2 = new Object();
 
@@ -128,7 +155,9 @@ public class ChaosController {
     }
 
     @GetMapping("/deadlock/clear")
-    public ResponseEntity<?> clearDeadlock() {
+    public ResponseEntity<?> clearDeadlock(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
+        validateToken(token);
         for (Thread t : deadlockThreads) {
             if (t.isAlive()) {
                 t.interrupt();
@@ -141,7 +170,9 @@ public class ChaosController {
     }
 
     @GetMapping("/sql-lock")
-    public ResponseEntity<?> sqlLock() {
+    public ResponseEntity<?> sqlLock(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
+        validateToken(token);
         if (jdbcTemplate == null) {
             Map<String, Object> response = new HashMap<>();
             response.put("status", "sql_lock_skipped_no_db");
@@ -162,7 +193,9 @@ public class ChaosController {
     }
 
     @GetMapping("/exhaust-pool")
-    public ResponseEntity<?> exhaustPool() {
+    public ResponseEntity<?> exhaustPool(
+            @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
+        validateToken(token);
         if (dataSource == null) {
             Map<String, Object> response = new HashMap<>();
             response.put("status", "pool_exhaustion_skipped_no_db");

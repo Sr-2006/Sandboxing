@@ -1,12 +1,13 @@
 import os
-import json
 import yaml
 import time
 import gc
+import subprocess
 from datetime import datetime, timezone
-from utils import atomic_write_json, read_json_file, parse_iso_dt
+from utils import atomic_write_json, read_json_file, parse_iso_dt, get_logger
 from phase1_schema import (
     UnifiedMasterDataset,
+    DatasetMeta,
     SystemContext,
     Incident,
     IncidentEvent,
@@ -17,6 +18,8 @@ from phase1_schema import (
     LogSample,
     MetricsSnapshot
 )
+
+logger = get_logger("package_ml_dataset")
 
 COMPOSE_FILE = "docker-compose.yml"
 STATUS_FILE = os.path.join("frontend_data", "status.json")
@@ -47,33 +50,45 @@ def parse_docker_compose_topology():
         elif isinstance(labels, dict):
             role = labels.get("ara.topology.role", name)
 
-        # 2. Downstream dependencies extraction
-        deps = set()
-        dep_on = s_cfg.get("depends_on", [])
-        if isinstance(dep_on, list):
-            deps.update(dep_on)
-        elif isinstance(dep_on, dict):
-            deps.update(dep_on.keys())
-
-        # Environment variable service references
-        env = s_cfg.get("environment", {})
-        if isinstance(env, dict):
-            for k, v in env.items():
-                if isinstance(v, str):
-                    for s in known_services:
-                        if s != name and s in v:
-                            deps.add(s)
-        elif isinstance(env, list):
-            for entry in env:
-                if isinstance(entry, str) and "=" in entry:
-                    k, v = entry.split("=", 1)
-                    for s in known_services:
-                        if s != name and s in v:
-                            deps.add(s)
-
-        # 3. Exposed ports
+        # 2. Exposed ports
+        exposed_ports = []
         raw_ports = s_cfg.get("ports", [])
-        exposed_ports = [str(p) for p in raw_ports]
+        for p in raw_ports:
+            if isinstance(p, str):
+                exposed_ports.append(p)
+            elif isinstance(p, dict):
+                published = p.get("published")
+                target = p.get("target")
+                if published and target:
+                    exposed_ports.append(f"{published}:{target}")
+                elif target:
+                    exposed_ports.append(str(target))
+
+        # 3. Downstream dependencies
+        deps = set()
+        depends_on = s_cfg.get("depends_on", [])
+        if isinstance(depends_on, list):
+            for d in depends_on:
+                if d in known_services:
+                    deps.add(d)
+        elif isinstance(depends_on, dict):
+            for d in depends_on.keys():
+                if d in known_services:
+                    deps.add(d)
+
+        # Inspect environment variables for cross-service links
+        env_vars = s_cfg.get("environment", {})
+        env_list = []
+        if isinstance(env_vars, dict):
+            env_list = [f"{k}={v}" for k, v in env_vars.items()]
+        elif isinstance(env_vars, list):
+            env_list = env_vars
+
+        for env_entry in env_list:
+            if isinstance(env_entry, str):
+                for other_svc in known_services:
+                    if other_svc != name and other_svc in env_entry:
+                        deps.add(other_svc)
 
         topology[name] = {
             "role": role,
@@ -87,7 +102,7 @@ def package_dataset():
     start_time = time.time()
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    print("=== [Auto-SRE Phase 1] Packaging Unified Master Dataset for ML/LLM ===")
+    logger.info("=== [Auto-SRE Phase 1] Packaging Unified Master Dataset for ML/LLM ===")
 
     # 1. Parse topology from docker-compose.yml
     topology_map = parse_docker_compose_topology()
@@ -182,25 +197,25 @@ def package_dataset():
             metrics_snapshot=metrics_snapshot
         )
 
-        # Injected Chaos Context
+        # Injected Chaos Context (correlating unified chaos history)
         chaos_mutation_desc = ""
         sample_dts = [parse_iso_dt(ls.timestamp) for ls in log_samples] if log_samples else [parse_iso_dt(now_iso)]
         cluster_start = min(sample_dts).timestamp()
         cluster_end = max(sample_dts).timestamp()
 
-        for scenario in chaos_history_data:
-            scenario_ts_str = scenario.get("timestamp", "")
-            scenario_dt = parse_iso_dt(scenario_ts_str)
-            scenario_dur = scenario.get("duration", 0)
-            target_services = scenario.get("target_services", [])
+        for ev in chaos_history_data:
+            s_ts = ev.get("start_ts", "")
+            e_ts = ev.get("end_ts", "")
+            f_target = ev.get("target", "")
+            f_name = ev.get("fault_name", "")
+            dur = float(ev.get("duration_s", ev.get("duration", 0.0)))
 
-            scen_start = scenario_dt.timestamp() - 300.0
-            scen_end = scenario_dt.timestamp() + scenario_dur + 300.0
+            ev_start = parse_iso_dt(s_ts).timestamp() - 300.0
+            ev_end = parse_iso_dt(e_ts).timestamp() + 300.0 if e_ts else ev_start + dur + 300.0
 
-            if (cluster_start <= scen_end and cluster_end >= scen_start) and (target_service in target_services or not target_services):
-                faults_str = ", ".join(scenario.get("faults", []))
-                targets_str = ", ".join(target_services)
-                chaos_mutation_desc = f"Infrastructure orchestrator triggered {faults_str} on {targets_str} (duration: {scenario_dur}s)."
+            if (cluster_start <= ev_end and cluster_end >= ev_start) and (target_service == f_target or not f_target or target_service in f_target):
+                status_str = ev.get("status", "injected")
+                chaos_mutation_desc = f"Infrastructure orchestrator triggered {f_name} on {f_target} (duration: {dur:.1f}s, status: {status_str})."
                 break
 
         injected_chaos_context = InjectedChaosContext(
@@ -217,24 +232,42 @@ def package_dataset():
         )
         packaged_incidents.append(incident_model)
 
+    # 4. Construct DatasetMeta lineage
+    git_sha = "unknown"
+    try:
+        git_sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() or "unknown"
+    except Exception:
+        pass
+
+    dataset_meta = DatasetMeta(
+        dataset_version="2.0.0",
+        processor_version=2,
+        git_sha=git_sha,
+        source_files={
+            "status.json": len(status_data.get("services", [])),
+            "processed_incidents.json": len(incidents_raw),
+            "chaos_history.json": len(chaos_history_data)
+        },
+        schema_version="1.0"
+    )
+
     # Build Master Dataset model
     master_dataset = UnifiedMasterDataset(
         generated_at=now_iso,
+        metadata=dataset_meta,
         system_context=system_context,
         incidents=packaged_incidents
     )
 
-    # 4. Strict Schema Validation with Pydantic
+    # 5. Strict Schema Validation with Pydantic
     try:
-        # Validate dump
         serialized_payload = master_dataset.model_dump()
-        # Verify round-trip model validation
         UnifiedMasterDataset.model_validate(serialized_payload)
     except Exception as validation_err:
-        print(f"[-] FATAL: Master dataset validation failed: {validation_err}")
+        logger.error(f"FATAL: Master dataset validation failed: {validation_err}")
         return
 
-    # 5. Atomic write
+    # 6. Atomic write
     atomic_write_json(OUTPUT_DATASET_FILE, serialized_payload)
     gc.collect()
 
@@ -244,10 +277,7 @@ def package_dataset():
         sev = inc.incident_event.severity
         severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-    print(f"[+] SUCCESS! Master dataset packaged and validated with Pydantic in {elapsed:.3f}s.")
-    print(f"    Total Incidents: {len(packaged_incidents)}")
-    print(f"    Severity Breakdown: {json.dumps(severity_counts)}")
-    print(f"    Exported to: '{OUTPUT_DATASET_FILE}'\n")
+    logger.info(f"SUCCESS! Master dataset packaged and validated in {elapsed:.3f}s. Total Incidents: {len(packaged_incidents)}, Breakdown: {severity_counts}")
 
 if __name__ == "__main__":
     package_dataset()

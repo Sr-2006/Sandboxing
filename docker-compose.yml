@@ -1,8 +1,9 @@
 x-chaos-env: &chaos-env
-  CHAOS_ENABLED: "${ENABLE_CHAOS:-true}"
+  CHAOS_ENABLED: "${ENABLE_CHAOS:-false}"
+  CHAOS_SECRET: "${CHAOS_SECRET:-dev-chaos-token}"
   SPRING_PROFILES_ACTIVE: "dev"
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-  JWT_SECRET: "${JWT_SECRET:-c2VjdXJlX2p3dF9zZWNyZXRfa2V5X2Zvcl9hdXRvX3NyZV9wbGF0Zm9ybV8xMjM0NTY3ODkwMTIzNDU2Nzg5MA==}"
+  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env}"
 
 services:
   postgres-db:

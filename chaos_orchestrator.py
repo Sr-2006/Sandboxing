@@ -4,9 +4,8 @@ import os
 import sys
 import argparse
 import socket
-import logging
 from typing import Optional, Dict, Any
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import docker
 import docker.errors
 import requests
@@ -14,11 +13,9 @@ import requests.exceptions
 import pika
 import pika.exceptions
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"chaos_orchestrator","message":"%(message)s"}'
-)
-logger = logging.getLogger("chaos_orchestrator")
+from utils import record_chaos_event, get_logger
+
+logger = get_logger("chaos_orchestrator")
 
 try:
     client = docker.from_env()
@@ -27,6 +24,9 @@ except docker.errors.DockerException as e:
     client = None
 
 TARGET_HOST = os.environ.get("TARGET_HOST", "localhost")
+RABBITMQ_USER = os.environ.get("RABBITMQ_DEFAULT_USER", "guest")
+RABBITMQ_PASS = os.environ.get("RABBITMQ_DEFAULT_PASS", "guest")
+CHAOS_SECRET = os.environ.get("CHAOS_SECRET", "dev-chaos-token")
 
 SERVICE_PORTS = {
     "api-gateway": 8080,
@@ -67,37 +67,28 @@ def get_container(target: str):
                 return c
         raise docker.errors.NotFound(f"Container '{target}' not found")
 
-def log_chaos_event(fault_name: str, target: str, start_ts: str, end_ts: str, params: Optional[Dict[str, Any]], duration: float) -> None:
-    history_file = os.path.join("frontend_data", "chaos_history.json")
-    os.makedirs("frontend_data", exist_ok=True)
-    events = []
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    events = data
-                elif isinstance(data, dict) and "events" in data:
-                    events = data["events"]
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Could not read chaos history file: {e}")
-            events = []
-    
-    events.append({
-        "fault_name": fault_name,
-        "target": target,
-        "start_ts": start_ts,
-        "end_ts": end_ts,
-        "params": params,
-        "duration": duration
-    })
-    
-    temp_file = history_file + ".tmp"
+def log_chaos_event(
+    fault_name: str,
+    target: str,
+    start_ts: str,
+    end_ts: str,
+    params: Optional[Dict[str, Any]],
+    duration: float,
+    status: str = "injected",
+    scenario_id: str = "adhoc"
+) -> None:
     try:
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(events, f, indent=2)
-        os.replace(temp_file, history_file)
-    except OSError as e:
+        record_chaos_event(
+            fault_name=fault_name,
+            target=target,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            params=params or {},
+            duration_s=duration,
+            status=status,
+            scenario_id=scenario_id
+        )
+    except Exception as e:
         logger.error(f"Failed to record chaos history: {e}")
 
 # --- Fault Implementations ---
@@ -109,6 +100,8 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
     start_time = datetime.now(timezone.utc)
     start_ts = start_time.isoformat()
     logger.info(f"Applying fault '{fault_name}' on target '{target}' with params: {params}")
+
+    headers = {"X-Chaos-Token": CHAOS_SECRET}
 
     if fault_name == "pause_container":
         c = get_container(target)
@@ -140,13 +133,23 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
         c.update(mem_limit="384m", memswap_limit="384m")
         logger.info(f"Container {c.name} memory limited to 384m")
 
+    elif fault_name == "network_latency":
+        c = get_container(target)
+        latency_ms = params.get("latency_ms", 200)
+        try:
+            c.exec_run(f"tc qdisc add dev eth0 root netem delay {latency_ms}ms")
+            logger.info(f"Container {c.name} injected {latency_ms}ms network latency via tc")
+        except Exception as e:
+            logger.warning(f"Could not inject tc latency (missing cap_add NET_ADMIN?): {e}")
+
     elif fault_name == "rabbitmq_backlog":
         num_msg = int(params.get("messages", 1000))
         connection = None
         for host in [TARGET_HOST, "rabbitmq"]:
             try:
+                credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
                 connection = pika.BlockingConnection(
-                    pika.ConnectionParameters(host=host, port=5672, credentials=pika.PlainCredentials('guest', 'guest'), connection_attempts=3, retry_delay=1)
+                    pika.ConnectionParameters(host=host, port=5672, credentials=credentials, connection_attempts=3, retry_delay=1)
                 )
                 break
             except (pika.exceptions.AMQPError, socket.error, OSError):
@@ -164,7 +167,7 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
         url = get_service_url(target)
         delay = params.get("delayMs", 5000)
         try:
-            r = requests.get(f"{url}/chaos/slow?delayMs={delay}", timeout=15)
+            r = requests.get(f"{url}/chaos/slow?delayMs={delay}", headers=headers, timeout=15)
             logger.info(f"HTTP slow response trigger: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
             logger.warning(f"HTTP slow request dropped or timed out (expected in chaos): {e}")
@@ -173,71 +176,75 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
         url = get_service_url(target)
         err_type = params.get("type", "null-pointer")
         try:
-            r = requests.get(f"{url}/chaos/throw?type={err_type}", timeout=5)
+            r = requests.get(f"{url}/chaos/throw?type={err_type}", headers=headers, timeout=5)
             logger.info(f"HTTP throw response trigger: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
             logger.info(f"HTTP throw triggered connection failure (expected): {e}")
 
     elif fault_name == "http_memory_leak":
         url = get_service_url(target)
-        mb = params.get("mb", 200)
+        mb = params.get("mb", 150)
         try:
-            r = requests.get(f"{url}/chaos/memory-leak?mb={mb}", timeout=10)
+            r = requests.get(f"{url}/chaos/memory-leak?mb={mb}", headers=headers, timeout=10)
             logger.info(f"HTTP memory leak trigger: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
-            logger.warning(f"HTTP memory leak request failed: {e}")
+            logger.warning(f"HTTP memory leak trigger error: {e}")
 
     elif fault_name == "http_deadlock":
         url = get_service_url(target)
         try:
-            r = requests.get(f"{url}/chaos/deadlock", timeout=5)
+            r = requests.get(f"{url}/chaos/deadlock", headers=headers, timeout=5)
             logger.info(f"HTTP deadlock trigger: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
-            logger.warning(f"HTTP deadlock request failed: {e}")
+            logger.warning(f"HTTP deadlock trigger error: {e}")
 
     elif fault_name == "http_sql_lock":
         url = get_service_url(target)
         try:
-            r = requests.get(f"{url}/chaos/sql-lock", timeout=5)
-            logger.info(f"HTTP SQL Lock trigger: {r.status_code} - {r.text}")
+            r = requests.get(f"{url}/chaos/sql-lock", headers=headers, timeout=5)
+            logger.info(f"HTTP SQL lock trigger: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
-            logger.warning(f"HTTP SQL Lock request failed: {e}")
+            logger.warning(f"HTTP SQL lock trigger error: {e}")
 
     elif fault_name == "http_exhaust_pool":
         url = get_service_url(target)
         try:
-            r = requests.get(f"{url}/chaos/exhaust-pool", timeout=5)
+            r = requests.get(f"{url}/chaos/exhaust-pool", headers=headers, timeout=5)
             logger.info(f"HTTP pool exhaustion trigger: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
-            logger.warning(f"HTTP pool exhaustion request failed: {e}")
+            logger.warning(f"HTTP pool exhaustion trigger error: {e}")
 
     else:
         raise ValueError(f"Unknown fault: {fault_name}")
 
     end_time = datetime.now(timezone.utc)
-    if end_time <= start_time:
-        end_time = start_time + timedelta(seconds=1)
     end_ts = end_time.isoformat()
     duration = (end_time - start_time).total_seconds()
-    log_chaos_event(fault_name, target, start_ts, end_ts, params, max(duration, 1.0))
+    log_chaos_event(fault_name, target, start_ts, end_ts, params, max(duration, 1.0), status="injected")
 
 def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, Any]] = None) -> None:
     logger.info(f"Recovering fault '{fault_name}' on target '{target}'")
     if orig_config is None:
         orig_config = {}
 
+    start_time = datetime.now(timezone.utc)
+    start_ts = start_time.isoformat()
+    headers = {"X-Chaos-Token": CHAOS_SECRET}
+
     if fault_name == "pause_container":
         c = get_container(target)
-        if c.status == "paused":
-            c.unpause()
-            logger.info(f"Container {c.name} unpaused")
+        c.unpause()
+        logger.info(f"Container {c.name} unpaused (recovered)")
+
+    elif fault_name == "kill_container":
+        c = get_container(target)
+        c.start()
+        logger.info(f"Container {c.name} restarted (recovered)")
 
     elif fault_name == "cpu_throttle":
         c = get_container(target)
-        orig_period = orig_config.get("cpu_period", 100000)
-        orig_quota = orig_config.get("cpu_quota", -1)
-        c.update(cpu_period=orig_period, cpu_quota=orig_quota)
-        logger.info(f"Container {c.name} CPU limit restored to period={orig_period}, quota={orig_quota}")
+        c.update(cpu_period=100000, cpu_quota=-1)
+        logger.info(f"Container {c.name} CPU quota restored to unlimited")
 
     elif fault_name == "memory_limit":
         c = get_container(target)
@@ -246,12 +253,21 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
         c.update(mem_limit=orig_mem, memswap_limit=orig_memswap)
         logger.info(f"Container {c.name} memory limit restored to {orig_mem} (swap: {orig_memswap})")
 
+    elif fault_name == "network_latency":
+        c = get_container(target)
+        try:
+            c.exec_run("tc qdisc del dev eth0 root")
+            logger.info(f"Container {c.name} network latency removed")
+        except Exception as e:
+            logger.warning(f"Could not remove tc latency: {e}")
+
     elif fault_name == "rabbitmq_backlog":
         connection = None
         for host in [TARGET_HOST, "rabbitmq"]:
             try:
+                credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
                 connection = pika.BlockingConnection(
-                    pika.ConnectionParameters(host=host, port=5672, credentials=pika.PlainCredentials('guest', 'guest'), connection_attempts=3, retry_delay=1)
+                    pika.ConnectionParameters(host=host, port=5672, credentials=credentials, connection_attempts=3, retry_delay=1)
                 )
                 break
             except (pika.exceptions.AMQPError, socket.error, OSError):
@@ -270,7 +286,7 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
     elif fault_name == "http_memory_leak":
         url = get_service_url(target)
         try:
-            r = requests.get(f"{url}/chaos/memory-leak/clear", timeout=10)
+            r = requests.get(f"{url}/chaos/memory-leak/clear", headers=headers, timeout=10)
             logger.info(f"HTTP memory leak cleared: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
             logger.warning(f"HTTP memory leak clear request failed: {e}")
@@ -278,16 +294,36 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
     elif fault_name == "http_deadlock":
         url = get_service_url(target)
         try:
-            r = requests.get(f"{url}/chaos/deadlock/clear", timeout=10)
+            r = requests.get(f"{url}/chaos/deadlock/clear", headers=headers, timeout=10)
             logger.info(f"HTTP deadlock cleared: {r.status_code} - {r.text}")
         except requests.exceptions.RequestException as e:
             logger.warning(f"HTTP deadlock clear request failed: {e}")
 
-    elif fault_name in ["unpause_container", "restart_container", "kill_container", "http_slow", "http_throw", "http_sql_lock", "http_exhaust_pool"]:
+    elif fault_name == "http_sql_lock":
+        logger.info("Recovery type for 'http_sql_lock': passive (DB sleep lock expires automatically)")
+        end_time = datetime.now(timezone.utc)
+        end_ts = end_time.isoformat()
+        log_chaos_event(
+            "http_sql_lock",
+            target,
+            start_ts,
+            end_ts,
+            {"recovery_type": "passive"},
+            duration=10.0,
+            status="recovered"
+        )
+        return
+
+    elif fault_name in ["unpause_container", "restart_container", "kill_container", "http_slow", "http_throw", "http_exhaust_pool"]:
         logger.info(f"No recovery required for '{fault_name}'")
     
     else:
         logger.warning(f"Unknown recovery for fault: {fault_name}")
+
+    end_time = datetime.now(timezone.utc)
+    end_ts = end_time.isoformat()
+    duration = (end_time - start_time).total_seconds()
+    log_chaos_event(fault_name, target, start_ts, end_ts, orig_config, max(duration, 1.0), status="recovered")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ARA Chaos Orchestrator CLI")

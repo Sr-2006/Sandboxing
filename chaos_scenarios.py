@@ -7,7 +7,9 @@ import gc
 import docker
 
 import chaos_orchestrator
-from utils import atomic_write_json, read_json_file, file_lock_context
+from utils import get_logger
+
+logger = get_logger("chaos_scenarios")
 
 try:
     client = docker.from_env()
@@ -17,12 +19,14 @@ except Exception:
 CONTAINERS = ["api-gateway", "auth-service", "order-service", "payment-service", "postgres-db", "redis", "rabbitmq"]
 HTTP_SERVICES = ["api-gateway", "auth-service", "order-service", "payment-service"]
 
+# 13-type chaos orchestration catalog
 FAULTS_CATALOG = [
     ("pause_container", "container", lambda: {}),
     ("restart_container", "container", lambda: {}),
     ("kill_container", "container", lambda: {}),
     ("cpu_throttle", "container", lambda: {}),
     ("memory_limit", "container", lambda: {}),
+    ("network_latency", "container", lambda: {"latency_ms": 200}),
     ("rabbitmq_backlog", "rabbitmq", lambda: {"messages": 1000}),
     ("http_slow", "http_service", lambda: {"delayMs": 5000}),
     ("http_throw", "http_service", lambda: {"type": random.choice(["null-pointer", "sql-timeout", "connection-reset"])}),
@@ -38,7 +42,6 @@ def get_original_limits(container_name):
     if not client:
         return {"memory": 0, "nano_cpus": 0}
     try:
-        # Resolve prefix
         container = chaos_orchestrator.get_container(container_name)
         host_config = container.attrs.get("HostConfig", {})
         return {
@@ -48,21 +51,11 @@ def get_original_limits(container_name):
             "cpu_quota": host_config.get("CpuQuota", -1)
         }
     except Exception as e:
-        print(f"[WARNING] Could not get original limits for {container_name}: {e}")
+        logger.warning(f"Could not get original limits for {container_name}: {e}")
         return {"memory": 0, "memswap": 0, "cpu_period": 0, "cpu_quota": -1}
-
-
-def write_history_atomic(entry):
-    with file_lock_context(HISTORY_FILE):
-        history = read_json_file(HISTORY_FILE, [])
-        if not isinstance(history, list):
-            history = []
-        history.append(entry)
-        atomic_write_json(HISTORY_FILE, history)
 
 def select_and_run_scenario():
     scenario_id = str(uuid.uuid4())
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     
     # Choose 2 or 3 distinct faults targeting different layers
     num_faults = random.choice([2, 3])
@@ -72,14 +65,13 @@ def select_and_run_scenario():
     targets_used = set()
     duration = random.randint(30, 120)
     
-    print(f"\n[CHAOS SCENARIO] === Starting Scenario {scenario_id} (Duration: {duration}s) ===")
+    logger.info(f"=== Starting Scenario {scenario_id} (Duration: {duration}s) ===")
     
     # Track original configs for recovery
     original_configs = {}
     
     try:
         for fault_name, target_type, param_gen in selected_faults:
-            # Pick a target that hasn't been used in this scenario yet
             target = None
             if target_type == "container":
                 available = [c for c in CONTAINERS if c not in targets_used]
@@ -99,8 +91,7 @@ def select_and_run_scenario():
             targets_used.add(target)
             params = param_gen()
             
-            # If changing container resource limits, fetch the current settings first
-            if fault_name == "memory_limit" or fault_name == "cpu_throttle":
+            if fault_name in ("memory_limit", "cpu_throttle"):
                 original_configs[target] = get_original_limits(target)
                 
             try:
@@ -111,17 +102,17 @@ def select_and_run_scenario():
                     "params": params
                 })
             except Exception as ex:
-                print(f"[ERROR] Failed to inject {fault_name} on {target}: {ex}")
+                logger.error(f"Failed to inject {fault_name} on {target}: {ex}")
                 
         if not injected:
-            print("[CHAOS SCENARIO] No faults were successfully injected. Aborting scenario.")
+            logger.warning("No faults were successfully injected. Aborting scenario.")
             return
             
-        print(f"[CHAOS SCENARIO] Sleeping for {duration} seconds while faults run...")
+        logger.info(f"Sleeping for {duration} seconds while faults run...")
         time.sleep(duration)
         
     finally:
-        print("[CHAOS SCENARIO] === Recovering all injected faults ===")
+        logger.info("=== Recovering all injected faults ===")
         for inj in injected:
             fault_name = inj["fault"]
             target = inj["target"]
@@ -129,47 +120,38 @@ def select_and_run_scenario():
             try:
                 chaos_orchestrator.recover_fault(fault_name, target, orig_cfg)
             except Exception as ex:
-                print(f"[ERROR] Failed to recover {fault_name} on {target}: {ex}")
+                logger.error(f"Failed to recover {fault_name} on {target}: {ex}")
                 
     # If a container was killed, restart it to leave cluster in healthy state
     for inj in injected:
         if inj["fault"] == "kill_container":
             try:
-                print(f"[REMEDIATION] Restarting killed container: {inj['target']}")
+                logger.info(f"Restarting killed container: {inj['target']}")
                 c = chaos_orchestrator.get_container(inj["target"])
                 c.start()
             except Exception as ex:
-                print(f"[ERROR] Failed to restart killed container {inj['target']}: {ex}")
+                logger.error(f"Failed to restart killed container {inj['target']}: {ex}")
                 
-    entry = {
-        "scenario_id": scenario_id,
-        "timestamp": timestamp,
-        "faults": [inj["fault"] for inj in injected],
-        "target_services": [inj["target"] for inj in injected],
-        "duration": duration,
-        "status": "completed"
-    }
-    
-    write_history_atomic(entry)
     gc.collect()
-    print(f"[CHAOS SCENARIO] Scenario {scenario_id} finished and logged successfully.")
+    logger.info(f"Scenario {scenario_id} finished successfully.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ARA Chaos Scenarios Executor")
     parser.add_argument("--interval", type=int, default=60, help="Interval between scenarios in seconds")
     parser.add_argument("--once", action="store_true", help="Run a single scenario and exit")
+    parser.add_argument("--scenario", type=str, default="", help="Run named scenario e.g. smoke")
     args = parser.parse_args()
     
-    if args.once:
+    if args.once or args.scenario:
         select_and_run_scenario()
     else:
-        print(f"[CHAOS SCENARIO] Starting chaos loop with scenario interval: {args.interval}s")
+        logger.info(f"Starting chaos loop with scenario interval: {args.interval}s")
         while True:
             try:
                 select_and_run_scenario()
             except KeyboardInterrupt:
-                print("[CHAOS SCENARIO] Stopped by user.")
+                logger.info("Chaos loop stopped by user.")
                 break
             except Exception as e:
-                print(f"[ERROR] Error in chaos loop: {e}")
+                logger.error(f"Error in chaos loop: {e}")
             time.sleep(args.interval)

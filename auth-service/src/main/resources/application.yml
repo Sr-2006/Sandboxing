@@ -43,7 +43,8 @@ management:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 chaos:
-  enabled: ${CHAOS_ENABLED:true}
+  enabled: ${CHAOS_ENABLED:false}
+  token: ${CHAOS_SECRET:dev-chaos-token}
 
 logging:
   pattern:

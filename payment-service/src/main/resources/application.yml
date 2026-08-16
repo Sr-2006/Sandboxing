@@ -38,7 +38,7 @@ management:
 
 chaos:
   enabled: ${CHAOS_ENABLED:false}
-  token: ${CHAOS_SECRET:dev-chaos-token}
+  token: ${CHAOS_SECRET:}
 
 logging:
   pattern:

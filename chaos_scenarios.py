@@ -95,7 +95,7 @@ def select_and_run_scenario():
                 original_configs[target] = get_original_limits(target)
                 
             try:
-                chaos_orchestrator.apply_fault(fault_name, target, params)
+                chaos_orchestrator.apply_fault(fault_name, target, params, scenario_id=scenario_id)
                 injected.append({
                     "fault": fault_name,
                     "target": target,
@@ -118,7 +118,7 @@ def select_and_run_scenario():
             target = inj["target"]
             orig_cfg = original_configs.get(target, None)
             try:
-                chaos_orchestrator.recover_fault(fault_name, target, orig_cfg)
+                chaos_orchestrator.recover_fault(fault_name, target, orig_cfg, scenario_id=scenario_id)
             except Exception as ex:
                 logger.error(f"Failed to recover {fault_name} on {target}: {ex}")
                 

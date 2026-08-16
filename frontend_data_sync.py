@@ -2,7 +2,9 @@ import os
 import time
 import gc
 from datetime import datetime, timezone
-from utils import atomic_write_json, read_json_file
+from utils import atomic_write_json, read_json_file, get_logger
+
+logger = get_logger("frontend_data_sync")
 
 OUTPUT_DIR = "frontend_data"
 RAW_TELEMETRY_FILE = os.path.join(OUTPUT_DIR, "raw_telemetry.json")
@@ -33,8 +35,7 @@ SERVICE_DEPENDENCIES = {
 }
 
 def log_msg(msg: str):
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"[{now_iso}] [SYNC] {msg}", flush=True)
+    logger.info(msg)
 
 def compute_container_health_score(container: dict) -> float:
     score = 100.0

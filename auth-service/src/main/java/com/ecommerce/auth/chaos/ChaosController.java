@@ -26,7 +26,7 @@ public class ChaosController {
     private static final List<byte[][]> memoryLeakList = new CopyOnWriteArrayList<>();
     private static final List<Thread> deadlockThreads = new CopyOnWriteArrayList<>();
 
-    @Value("${chaos.token:dev-chaos-token}")
+    @Value("${chaos.token:}")
     private String chaosToken;
 
     @Autowired(required = false)
@@ -36,10 +36,11 @@ public class ChaosController {
     private DataSource dataSource;
 
     private void validateToken(String headerToken) {
-        if (chaosToken != null && !chaosToken.trim().isEmpty()) {
-            if (headerToken == null || !chaosToken.equals(headerToken.trim())) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden: Invalid or missing X-Chaos-Token");
-            }
+        if (chaosToken == null || chaosToken.trim().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden: chaos token not configured");
+        }
+        if (headerToken == null || !chaosToken.equals(headerToken.trim())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden: Invalid or missing X-Chaos-Token");
         }
     }
 

@@ -1,6 +1,6 @@
 x-chaos-env: &chaos-env
   CHAOS_ENABLED: "${ENABLE_CHAOS:-false}"
-  CHAOS_SECRET: "${CHAOS_SECRET:-dev-chaos-token}"
+  CHAOS_SECRET: "${CHAOS_SECRET:?CHAOS_SECRET must be set in .env}"
   SPRING_PROFILES_ACTIVE: "dev"
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env}"

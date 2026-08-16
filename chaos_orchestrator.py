@@ -93,7 +93,7 @@ def log_chaos_event(
 
 # --- Fault Implementations ---
 
-def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] = None) -> None:
+def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] = None, scenario_id: str = "adhoc") -> None:
     if params is None:
         params = {}
     
@@ -220,9 +220,9 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
     end_time = datetime.now(timezone.utc)
     end_ts = end_time.isoformat()
     duration = (end_time - start_time).total_seconds()
-    log_chaos_event(fault_name, target, start_ts, end_ts, params, max(duration, 1.0), status="injected")
+    log_chaos_event(fault_name, target, start_ts, end_ts, params, max(duration, 1.0), status="injected", scenario_id=scenario_id)
 
-def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, Any]] = None) -> None:
+def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, Any]] = None, scenario_id: str = "adhoc") -> None:
     logger.info(f"Recovering fault '{fault_name}' on target '{target}'")
     if orig_config is None:
         orig_config = {}
@@ -310,7 +310,8 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
             end_ts,
             {"recovery_type": "passive"},
             duration=10.0,
-            status="recovered"
+            status="recovered",
+            scenario_id=scenario_id
         )
         return
 
@@ -323,7 +324,7 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
     end_time = datetime.now(timezone.utc)
     end_ts = end_time.isoformat()
     duration = (end_time - start_time).total_seconds()
-    log_chaos_event(fault_name, target, start_ts, end_ts, orig_config, max(duration, 1.0), status="recovered")
+    log_chaos_event(fault_name, target, start_ts, end_ts, orig_config, max(duration, 1.0), status="recovered", scenario_id=scenario_id)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ARA Chaos Orchestrator CLI")

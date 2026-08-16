@@ -4,7 +4,7 @@ import time
 import gc
 import subprocess
 from datetime import datetime, timezone
-from utils import atomic_write_json, read_json_file, parse_iso_dt, get_logger
+from utils import atomic_write_json, read_json_file, parse_iso_dt, get_logger, migrate_legacy_chaos_history
 from phase1_schema import (
     UnifiedMasterDataset,
     DatasetMeta,
@@ -110,6 +110,9 @@ def package_dataset():
     # 2. Read live data files
     status_data = read_json_file(STATUS_FILE, {})
     processed_incidents_data = read_json_file(PROCESSED_INCIDENTS_FILE, {})
+    migrated = migrate_legacy_chaos_history(CHAOS_HISTORY_FILE)
+    if migrated:
+        logger.info(f"Migrated {migrated} legacy chaos history entries to unified schema")
     chaos_history_data = read_json_file(CHAOS_HISTORY_FILE, [])
 
     system_health_score = status_data.get("system_health_score", 100.0)

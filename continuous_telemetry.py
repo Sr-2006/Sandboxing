@@ -9,7 +9,9 @@ import re
 import time
 from datetime import datetime, timezone
 from aiodocker import Docker
-from utils import atomic_write_json
+from utils import atomic_write_json, get_logger
+
+logger = get_logger("continuous_telemetry")
 
 RAW_TELEMETRY_FILE = os.path.join("frontend_data", "raw_telemetry.json")
 EVENTS_FILE = os.path.join("frontend_data", "events_and_incidents.json")
@@ -32,8 +34,7 @@ seen_log_hashes = set()
 seen_log_hashes_queue = collections.deque(maxlen=MAX_SEEN_LOG_HASHES)
 
 def log_msg(msg: str):
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"[{now_iso}] {msg}", flush=True)
+    logger.info(msg)
 
 def compute_z_score(buffer: collections.deque, current_val: float) -> float:
     if len(buffer) < 5:

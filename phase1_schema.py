@@ -2,6 +2,13 @@ import re
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, field_validator
 
+class DatasetMeta(BaseModel):
+    dataset_version: str          # semver (e.g. "2.0.0")
+    processor_version: int        # from phase1_processor.PROCESSOR_VERSION
+    git_sha: str                  # git commit hash
+    source_files: Dict[str, int]  # filename -> record count
+    schema_version: str = "1.0"
+
 class SystemContext(BaseModel):
     objective: str
     environment: str
@@ -63,5 +70,6 @@ class Incident(BaseModel):
 
 class UnifiedMasterDataset(BaseModel):
     generated_at: str
+    metadata: Optional[DatasetMeta] = None
     system_context: SystemContext
     incidents: List[Incident]

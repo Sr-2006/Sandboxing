@@ -15,6 +15,17 @@ This file conforms to the Pydantic v2 schema defined in `phase1_schema.py` and i
 ```json
 {
   "generated_at": "2026-08-15T10:00:00Z",
+  "metadata": {
+    "dataset_version": "2.0.0",
+    "processor_version": 2,
+    "git_sha": "351bc71d4b684534f590b5e827e8a93149a4fba7",
+    "source_files": {
+      "status.json": 7,
+      "processed_incidents.json": 12,
+      "chaos_history.json": 4
+    },
+    "schema_version": "1.0"
+  },
   "system_context": {
     "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
     "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
@@ -75,7 +86,7 @@ This file conforms to the Pydantic v2 schema defined in `phase1_schema.py` and i
         ]
       },
       "injected_chaos_context": {
-        "active_infrastructure_mutations": "Infrastructure orchestrator triggered restart_container on payment-service (duration: 65s)."
+        "active_infrastructure_mutations": "Infrastructure orchestrator triggered restart_container on payment-service (duration: 65.0s, status: injected)."
       }
     }
   ]
@@ -86,20 +97,24 @@ This file conforms to the Pydantic v2 schema defined in `phase1_schema.py` and i
 
 ### Key Architectural Guarantees for Phase 2 / Phase 3
 
-1. **Incident Identifier**:
+1. **Dataset Lineage & Reproducibility (`metadata`)**:
+   - `metadata` block is optionally present (additive guarantee) carrying `dataset_version` ("2.0.0"), `processor_version` (2), `git_sha`, and record counts per source file.
+   - Downstream ChromaDB indexers can use `git_sha` and `dataset_version` to fingerprint and version index collections.
+2. **Incident Identifier**:
    - `incident_id` is always a unique composite string formatted as `<target_service>_<cluster_id>` (e.g. `payment-service_12`, `order-service_15`). Never a random UUID.
-2. **Prioritization & Sorting**:
+3. **Prioritization & Sorting**:
    - The `incidents` array is pre-sorted in descending order by `priority_score`.
    - Priority scores account for occurrence velocity ($\log_{10}$ scale), container failure state penalties ($+50$ for exited/dead, $+30$ for unhealthy), statistical anomaly penalties ($\le 25$), and exponential time decay ($\le 20$).
-3. **Telemetry Evidence**:
+4. **Telemetry Evidence**:
    - `log_cluster_template`: Sanitized Drain3 template derived from multi-line stitched exception blocks. The template ALWAYS contains the exception class and first error message (e.g. `java.lang.NullPointerException: X`), NEVER a standalone `at <*>` line.
-   - `log_samples`: Contains up to 5 most recent unmasked log records with preserved stack traces, log levels, and populated OpenTelemetry `trace_id` / `span_id` (target $\ge 80\%$ correlation for ERROR/WARN logs).
+   - `log_samples`: Contains up to 5 most recent unmasked log records with preserved stack traces, log levels, and populated OpenTelemetry `trace_id` / `span_id` (target $\ge 95\%$ correlation for ERROR/WARN logs).
    - `metrics_snapshot`: Contains up to 3 most recent host container metric points. If empty (for fresh-cluster incidents), Phase 2 indexers must gracefully handle `[]` without erroring.
-4. **ChromaDB Vector Fingerprinting Contract**:
+5. **ChromaDB Vector Fingerprinting Contract**:
    - Phase 2 vector embedding key is mandated to be the `(target_service, log_cluster_template)` tuple.
    - `trace_id` MUST be indexed as metadata for cross-span trace correlation across microservices.
    - Validation rule: Any incident entry with an empty or blank `log_cluster_template` MUST be filtered out prior to ChromaDB indexing.
-5. **State Versioning & Reset Policy**:
+6. **State Versioning & Reset Policy**:
    - Running `python phase1_processor.py --reset-drain` is a destructive but expected operation for version 2 state migration. It resets `drain3_state.bin` to ensure clean, non-divergent cluster IDs after pre-stitcher logic changes.
-6. **Chaos Context**:
+7. **Unified Chaos Context**:
    - `active_infrastructure_mutations` contains active faults when incidents overlap with a known scenario from `chaos_history.json` within $\pm 5$ minutes, or `""` if no mutations were active.
+   - `chaos_history.json` uses the unified schema (`event_id`, `scenario_id`, `fault_name`, `target`, `start_ts`, `end_ts`, `params`, `duration_s`, `status`).

@@ -5,8 +5,44 @@
 
 Write-Host "=== [Auto-SRE Phase 1] Starting Stack Orchestration ===" -ForegroundColor Cyan
 
+# 0. Ensure .env exists (compose requires JWT_SECRET / CHAOS_SECRET / DB creds)
+if (-not (Test-Path .env)) {
+    if (Test-Path .env.example) {
+        Write-Host "[!] .env not found. Copying .env.example to .env..." -ForegroundColor Yellow
+        Copy-Item .env.example .env
+    } else {
+        Write-Host "[-] Error: .env.example missing." -ForegroundColor Red
+        exit 1
+    }
+}
+
 # 1. Environment Variables
 $env:ENABLE_CHAOS = "true"
+
+# Load CHAOS_SECRET / TARGET_HOST from .env so Python tooling matches the services
+Get-Content .env | ForEach-Object {
+    if ($_ -match '^\s*(CHAOS_SECRET|TARGET_HOST)\s*=\s*(.+)\s*$') {
+        Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
+    }
+}
+
+# Preflight: Check Available RAM (Guardrail for 16GB systems)
+try {
+    $os = Get-CimInstance Win32_OperatingSystem
+    $freeGB = [math]::Round($os.FreePhysicalMemory / 1024 / 1024, 2)
+    $totalGB = [math]::Round($os.TotalVisibleMemorySize / 1024 / 1024, 2)
+    Write-Host "[*] System RAM: ${freeGB} GB free / ${totalGB} GB total" -ForegroundColor Cyan
+    if ($freeGB -lt 6.0) {
+        Write-Host "[!] WARNING: Free RAM is ${freeGB} GB (< 6.0 GB recommended). Docker stack + chaos simulations may stress memory." -ForegroundColor Yellow
+        Write-Host "    Consider closing background applications if you experience container OOMs." -ForegroundColor Gray
+    }
+} catch {
+    # Fallback silently
+}
+
+if ($env:CHAOS_SECRET -eq "dev-chaos-token" -and $env:ENABLE_CHAOS -eq "true") {
+    Write-Host "[!] SECURITY NOTICE: CHAOS_SECRET is using default 'dev-chaos-token'. For non-dev deployments, customize in .env." -ForegroundColor Yellow
+}
 
 # 2. Stop Existing Daemons & Clean Containers
 Write-Host "`n[1/4] Stopping and removing existing containers/volumes..." -ForegroundColor Yellow

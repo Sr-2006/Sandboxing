@@ -23,3 +23,7 @@ def test_live_master_dataset_contract_if_exists():
             data = json.load(f)
         dataset = UnifiedMasterDataset(**data)
         assert isinstance(dataset.incidents, list)
+        if dataset.metadata:
+            assert dataset.metadata.dataset_version == "2.0.0"
+            assert dataset.metadata.processor_version == 2
+            assert "git_sha" in dataset.metadata.model_dump()

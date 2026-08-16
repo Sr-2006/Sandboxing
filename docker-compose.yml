@@ -1,8 +1,9 @@
 x-chaos-env: &chaos-env
-  CHAOS_ENABLED: "${ENABLE_CHAOS:-true}"
+  CHAOS_ENABLED: "${ENABLE_CHAOS:-false}"
+  CHAOS_SECRET: "${CHAOS_SECRET:?CHAOS_SECRET must be set in .env}"
   SPRING_PROFILES_ACTIVE: "dev"
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-  JWT_SECRET: "${JWT_SECRET:-c2VjdXJlX2p3dF9zZWNyZXRfa2V5X2Zvcl9hdXRvX3NyZV9wbGF0Zm9ybV8xMjM0NTY3ODkwMTIzNDU2Nzg5MA==}"
+  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env}"
 
 services:
   postgres-db:
@@ -165,6 +166,8 @@ services:
     build:
       context: ./api-gateway
     container_name: api-gateway
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=edge-routing-and-rate-limiting"
@@ -197,6 +200,8 @@ services:
     build:
       context: ./auth-service
     container_name: auth-service
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=authentication-service"
@@ -230,6 +235,8 @@ services:
     build:
       context: ./order-service
     container_name: order-service
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=order-processing"
@@ -260,6 +267,8 @@ services:
     build:
       context: ./payment-service
     container_name: payment-service
+    cap_add:
+      - NET_ADMIN
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=payment-processing"

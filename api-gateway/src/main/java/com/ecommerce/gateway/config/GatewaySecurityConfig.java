@@ -15,6 +15,7 @@ public class GatewaySecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
+                        .pathMatchers("/chaos/**").denyAll()
                         .anyExchange().permitAll()
                 )
                 .build();

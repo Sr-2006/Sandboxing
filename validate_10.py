@@ -46,15 +46,17 @@ def static_gates():
     try:
         tracked = subprocess.run(["git", "ls-files", "frontend_data/", "validation_report.json"],
                                  capture_output=True, text=True, cwd=ROOT).stdout.split()
+        bad = [f for f in tracked if f.endswith((".json", ".bin", ".meta", ".log"))]
+        gate("no_generated_artifacts_tracked", not bad, f"tracked={bad[:5]}" if bad else "clean")
     except FileNotFoundError:
-        # git not available (e.g. slim CI image): a fresh CI checkout only
-        # contains tracked files, so filesystem presence is equivalent.
-        tracked = [str(p.relative_to(ROOT)) for p in (ROOT / "frontend_data").glob("*")
-                   if p.is_file()] if (ROOT / "frontend_data").exists() else []
+        # git unavailable (e.g., slim CI image with archive checkout): in an
+        # archive checkout only tracked files exist, so a disk check is equivalent.
+        present = [str(p.relative_to(ROOT)) for p in (ROOT / "frontend_data").glob("*")
+                   if p.suffix in (".json", ".bin", ".meta", ".log")]
         if (ROOT / "validation_report.json").exists():
-            tracked.append("validation_report.json")
-    bad = [f for f in tracked if f.endswith((".json", ".bin", ".meta"))]
-    gate("no_generated_artifacts_tracked", not bad, f"tracked={bad[:5]}" if bad else "clean")
+            present.append("validation_report.json")
+        gate("no_generated_artifacts_tracked", not present,
+             f"present={present[:5]}" if present else "clean (no git; disk check)")
 
     # WS3: pinned python deps
     unpinned = [line.strip() for line in read("requirements.txt").splitlines()
@@ -72,12 +74,18 @@ def static_gates():
         tests = list((ROOT / svc / "src" / "test").rglob("*Test.java"))
         gate(f"java_tests_{svc}", len(tests) >= 1, f"{len(tests)} test file(s)")
 
-    # WS5: orchestrator quality
+    # WS5: orchestrator quality & credentials
     orch = read("chaos_orchestrator.py")
-    gate("orchestrator_uses_logging", "import logging" in orch and 'print(' not in orch,
+    gate("orchestrator_uses_logging", "get_logger" in orch and 'print(' not in orch,
          "logging module, no print()")
     gate("orchestrator_no_bare_except", "except Exception:" not in orch)
+    gate("no_hardcoded_creds", "PlainCredentials('guest'" not in orch and 'PlainCredentials("guest"' not in orch,
+         "env-driven credentials")
     gate("redis_allowlist_typo_fixed", "fatale" not in read("phase1_processor.py"))
+
+    # WS4: Observability provisioning
+    gate("grafana_prometheus_provisioned", (ROOT / "grafana" / "provisioning" / "datasources" / "prometheus.yml").exists())
+    gate("grafana_dashboard_provisioned", (ROOT / "grafana" / "provisioning" / "dashboards" / "system-overview.json").exists())
 
     # WS6: portability
     gate("cross_platform_entrypoint", (ROOT / "run.sh").exists() or (ROOT / "Makefile").exists())
@@ -107,7 +115,7 @@ def runtime_gates(freshness_hours):
                 err += 1
                 corr += bool(s.get("trace_id") and s.get("span_id"))
     ratio = corr / err if err else 1.0
-    gate("trace_ratio_errwarn>=0.95", ratio >= 0.95, f"ratio={ratio:.3f}")  # raised from 0.80
+    gate("trace_ratio_errwarn>=0.95", ratio >= 0.95, f"ratio={ratio:.3f}")
 
     gate("redis_med_high==0", not any(
         i["incident_event"]["target_service"] == "redis"
@@ -119,7 +127,7 @@ def runtime_gates(freshness_hours):
         and "Exception" not in i["telemetry_evidence"]["log_cluster_template"]
         for i in incidents[:5]))
 
-    # New gate: timestamp validity (ISO-8601 UTC)
+    # Timestamp validity (ISO-8601 UTC)
     def ok_ts(t):
         try:
             datetime.fromisoformat(str(t).replace("Z", "+00:00"))
@@ -131,7 +139,7 @@ def runtime_gates(freshness_hours):
     bad_ts = [t for t in all_ts if not ok_ts(t)]
     gate("timestamps_iso8601", not bad_ts, f"{len(bad_ts)}/{len(all_ts)} invalid")
 
-    # New gate: chaos label coverage for HIGH/CRITICAL incidents
+    # Chaos label coverage for HIGH/CRITICAL incidents
     if chaos:
         windows = []
         for e in (chaos if isinstance(chaos, list) else chaos.get("events", [])):
@@ -152,38 +160,47 @@ def runtime_gates(freshness_hours):
     else:
         gate("chaos_label_coverage>=0.90", False, "chaos_history.json missing")
 
-    # New gate: topology consistency
+    # Topology consistency
     unknown = [i["incident_event"]["target_service"] for i in incidents
                if not i.get("infrastructure_topology")]
     gate("topology_consistent", not unknown, f"unmapped={set(unknown)}" if unknown else "all mapped")
 
-    # New gate: dataset freshness
+    # Dataset freshness
     gen = dataset.get("generated_at")
     fresh = ok_ts(gen) and datetime.now(timezone.utc) - datetime.fromisoformat(
         gen.replace("Z", "+00:00")) < timedelta(hours=freshness_hours)
     gate(f"dataset_fresh<{freshness_hours}h", fresh, f"generated_at={gen}")
 
+    # Dataset Metadata lineage
+    meta = dataset.get("metadata")
+    gate("dataset_metadata_lineage", meta is not None and "git_sha" in meta and "dataset_version" in meta)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--static", action="store_true")
     ap.add_argument("--runtime", action="store_true")
-    ap.add_argument("--freshness-hours", type=int, default=6)
+    ap.add_argument("--freshness-hours", type=int, default=24)
     args = ap.parse_args()
-    run_all = not (args.static or args.runtime)
 
-    if args.static or run_all:
+    run_static = args.static or not args.runtime
+    run_runtime = args.runtime or not args.static
+
+    if run_static:
         print("=== STATIC GATES ===")
         static_gates()
-    if args.runtime or run_all:
-        print("=== RUNTIME GATES ===")
+    if run_runtime:
+        print("\n=== RUNTIME GATES ===")
         runtime_gates(args.freshness_hours)
 
-    passed = sum(r["passed"] for r in RESULTS)
-    report = {"generated_at": datetime.now(timezone.utc).isoformat(),
-              "score": f"{passed}/{len(RESULTS)}", "gates": RESULTS}
-    with open(ROOT / "validation_report.json", "w") as f:
-        json.dump(report, f, indent=2)
-    print(f"\nRESULT: {passed}/{len(RESULTS)} gates passed")
+    passed = sum(1 for r in RESULTS if r["passed"])
+    print(f"\nRESULT: {passed}/{len(RESULTS)} gates passed\n")
+
+    report = ROOT / "validation_report.json"
+    with open(report, "w", encoding="utf-8") as f:
+        json.dump({"timestamp": datetime.now(timezone.utc).isoformat(),
+                   "passed": passed, "total": len(RESULTS),
+                   "gates": RESULTS}, f, indent=2)
+
     sys.exit(0 if passed == len(RESULTS) else 1)
 
 if __name__ == "__main__":

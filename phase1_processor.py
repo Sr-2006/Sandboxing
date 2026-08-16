@@ -9,8 +9,10 @@ from drain3 import TemplateMiner
 from drain3.template_miner_config import TemplateMinerConfig
 from drain3.masking import MaskingInstruction
 from drain3.file_persistence import FilePersistence
-from utils import atomic_write_json, read_json_file, parse_iso_dt
+from utils import atomic_write_json, read_json_file, parse_iso_dt, get_logger, migrate_legacy_chaos_history
 from package_ml_dataset import parse_docker_compose_topology
+
+logger = get_logger("phase1_processor")
 
 DRAIN3_STATE_FILE = os.path.join("frontend_data", "drain3_state.bin")
 VERSION_HEADER_FILE = os.path.join("frontend_data", "drain3_version.meta")
@@ -110,6 +112,9 @@ def is_infra_noise(container_name: str, level: str, raw_content: str) -> bool:
     # Filter out postgres container initialization noise
     if container_name == "postgres-db":
         if "initdb" in raw_content or "trust" in raw_content or "PostgreSQL Database directory" in raw_content:
+            return True
+        # Benign server-level environment warnings (postgres emits no OTel trace context)
+        if "no usable system locale" in raw_content or "continuing with default locale" in raw_content:
             return True
 
     # Filter out Tomcat post-filter unwound error logs (which lack MDC trace context)
@@ -262,7 +267,7 @@ def check_drain_version_and_reset_if_needed(force_reset: bool = False):
                     os.remove(file_path)
                 except Exception:
                     pass
-        print(f"[+] Version migration / --reset-drain: Reset Drain3 cluster state for v{PROCESSOR_VERSION}.")
+        logger.info(f"Version migration / --reset-drain: Reset Drain3 cluster state for v{PROCESSOR_VERSION}.")
         with open(VERSION_HEADER_FILE, "w") as f:
             f.write(str(PROCESSOR_VERSION))
 
@@ -274,24 +279,24 @@ def process_phase1_incidents(reset_drain: bool = False):
     chaos_history_file = os.path.join("frontend_data", "chaos_history.json")
     output_file = os.path.join("frontend_data", "processed_incidents.json")
 
-    print("=== [Auto-SRE Phase 1] Processing Inbound Telemetry & Log Clusters ===")
+    logger.info("=== [Auto-SRE Phase 1] Processing Inbound Telemetry & Log Clusters ===")
 
     check_drain_version_and_reset_if_needed(reset_drain)
 
     if os.path.exists(DRAIN3_STATE_FILE):
         try:
             miner.load_state()
-            print(f"[+] Loaded Drain3 cluster state from '{DRAIN3_STATE_FILE}'")
+            logger.info(f"Loaded Drain3 cluster state from '{DRAIN3_STATE_FILE}'")
         except Exception as e:
-            print(f"[-] Warning: Could not load Drain3 state from '{DRAIN3_STATE_FILE}': {e}. Starting fresh.")
+            logger.warning(f"Could not load Drain3 state from '{DRAIN3_STATE_FILE}': {e}. Starting fresh.")
 
     if not os.path.exists(events_file):
-        print(f"[-] Error: '{events_file}' not found.")
+        logger.error(f"'{events_file}' not found.")
         return
 
     events_data = read_json_file(events_file, [], retries=3)
     if not events_data:
-        print(f"[-] Warning: '{events_file}' is empty. No incidents to cluster.")
+        logger.warning(f"'{events_file}' is empty. No incidents to cluster.")
         empty_payload = {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "incidents": []
@@ -305,6 +310,9 @@ def process_phase1_incidents(reset_drain: bool = False):
     status_data = read_json_file(status_file, {}, retries=3)
     raw_telemetry_data = read_json_file(raw_telemetry_file, {}, retries=3)
     time_series_data = read_json_file(time_series_file, [], retries=3)
+    migrated = migrate_legacy_chaos_history(chaos_history_file)
+    if migrated:
+        logger.info(f"Migrated {migrated} legacy chaos history entries to unified schema")
     chaos_history_data = read_json_file(chaos_history_file, [], retries=3)
 
     system_health_score = status_data.get("system_health_score", 100.0)
@@ -379,11 +387,11 @@ def process_phase1_incidents(reset_drain: bool = False):
 
     try:
         miner.save_state("periodic_snapshot")
-        print(f"[+] Saved Drain3 cluster state to '{DRAIN3_STATE_FILE}'")
+        logger.info(f"Saved Drain3 cluster state to '{DRAIN3_STATE_FILE}'")
         with open(VERSION_HEADER_FILE, "w") as f:
             f.write(str(PROCESSOR_VERSION))
     except Exception as e:
-        print(f"[-] Warning: Failed to save Drain3 state: {e}")
+        logger.warning(f"Failed to save Drain3 state: {e}")
 
     ref_time = max_log_dt if max_log_dt != datetime.min.replace(tzinfo=timezone.utc) else datetime.now(timezone.utc)
     incidents_list = []
@@ -460,19 +468,21 @@ def process_phase1_incidents(reset_drain: bool = False):
         cluster_start = c_info["earliest_dt"].timestamp()
         cluster_end = c_info["latest_dt"].timestamp()
 
-        for scenario in chaos_history_data:
-            scenario_ts_str = scenario.get("timestamp", "")
-            scenario_dt = cached_parse_dt(scenario_ts_str)
-            scenario_dur = scenario.get("duration", 0)
-            target_services = scenario.get("target_services", [])
+        # Unified chaos event schema (utils.CHAOS_EVENT_SCHEMA):
+        # {event_id, scenario_id, fault_name, target, start_ts, end_ts, params, duration_s, status}
+        for event in chaos_history_data:
+            ev_start_dt = cached_parse_dt(event.get("start_ts", ""))
+            ev_end_dt = cached_parse_dt(event.get("end_ts", ""))
+            ev_dur = float(event.get("duration_s", 0.0))
+            ev_target = event.get("target", "")
 
-            scen_start = scenario_dt.timestamp() - 300.0
-            scen_end = scenario_dt.timestamp() + scenario_dur + 300.0
+            ev_start = ev_start_dt.timestamp() - 300.0
+            ev_end = (ev_end_dt.timestamp() + 300.0) if event.get("end_ts") else (ev_start_dt.timestamp() + ev_dur + 300.0)
 
-            if (cluster_start <= scen_end and cluster_end >= scen_start) and (container_name in target_services or not target_services):
-                faults_str = ", ".join(scenario.get("faults", []))
-                targets_str = ", ".join(target_services)
-                chaos_mutation_desc = f"Infrastructure orchestrator triggered {faults_str} on {targets_str} (duration: {scenario_dur}s)."
+            if (cluster_start <= ev_end and cluster_end >= ev_start) and (container_name == ev_target or not ev_target or container_name in ev_target):
+                fault_name = event.get("fault_name", "unknown")
+                status_str = event.get("status", "injected")
+                chaos_mutation_desc = f"Infrastructure orchestrator triggered {fault_name} on {ev_target} (duration: {ev_dur:.1f}s, status: {status_str})."
                 break
 
         incident_obj = {
@@ -525,8 +535,8 @@ def process_phase1_incidents(reset_drain: bool = False):
                     correlated_trace_span += 1
 
     ratio = (correlated_trace_span / total_error_warn * 100.0) if total_error_warn > 0 else 100.0
-    print(f"[+] Trace/Span ID Correlation Ratio for ERROR/WARN logs: {ratio:.1f}% ({correlated_trace_span}/{total_error_warn})")
-    print(f"[+] Success! {len(incidents_list)} incidents clustered and exported to '{output_file}'.\n")
+    logger.info(f"Trace/Span ID Correlation Ratio for ERROR/WARN logs: {ratio:.1f}% ({correlated_trace_span}/{total_error_warn})")
+    logger.info(f"Success! {len(incidents_list)} incidents clustered and exported to '{output_file}'.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Auto-SRE Phase 1 Log Clustering Processor")

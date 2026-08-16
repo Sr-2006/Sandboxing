@@ -3,21 +3,57 @@ import random
 import requests
 import argparse
 import uuid
+import os
+from utils import get_logger
 
-GATEWAY_URL = "http://localhost:8080"
+logger = get_logger("load_generator")
 
-# Endpoint maps via Gateway (with fallback to direct service ports)
+TARGET_HOST = os.environ.get("TARGET_HOST", "localhost")
+GATEWAY_URL = f"http://{TARGET_HOST}:8080"
+CHAOS_SECRET = os.environ.get("CHAOS_SECRET", "dev-chaos-token")
+
+# Explicit endpoint maps (Gateway path vs Direct service path)
 ENDPOINTS = {
     "auth": [
-        {"method": "POST", "path": "/api/v1/auth/register", "fallback_port": 8081, "payload": lambda: {"username": f"user_{uuid.uuid4().hex[:8]}", "password": "password123", "email": f"user_{uuid.uuid4().hex[:8]}@example.com"}},
-        {"method": "POST", "path": "/api/v1/auth/login", "fallback_port": 8081, "payload": lambda: {"username": "admin", "password": "password"}}
+        {
+            "method": "POST",
+            "gateway_path": "/api/v1/auth/register",
+            "direct_path": "/api/v1/auth/register",
+            "fallback_port": 8081,
+            "payload": lambda: {"username": f"user_{uuid.uuid4().hex[:8]}", "password": "password123", "email": f"user_{uuid.uuid4().hex[:8]}@example.com"}
+        },
+        {
+            "method": "POST",
+            "gateway_path": "/api/v1/auth/login",
+            "direct_path": "/api/v1/auth/login",
+            "fallback_port": 8081,
+            "payload": lambda: {"username": "admin", "password": "password"}
+        }
     ],
     "order": [
-        {"method": "POST", "path": "/api/v1/orders", "fallback_port": 8082, "payload": lambda: {"userId": str(uuid.uuid4()), "item": "Laptop", "amount": 1200.0}},
-        {"method": "GET", "path": "/api/v1/orders", "fallback_port": 8082, "payload": None}
+        {
+            "method": "POST",
+            "gateway_path": "/api/v1/orders",
+            "direct_path": "/api/orders",
+            "fallback_port": 8082,
+            "payload": lambda: {"userId": str(uuid.uuid4()), "item": "Laptop", "amount": 1200.0}
+        },
+        {
+            "method": "GET",
+            "gateway_path": "/api/v1/orders",
+            "direct_path": "/api/orders",
+            "fallback_port": 8082,
+            "payload": None
+        }
     ],
     "payment": [
-        {"method": "POST", "path": "/api/v1/payments/process", "fallback_port": 8083, "payload": lambda: {"orderId": str(uuid.uuid4()), "amount": 99.99, "currency": "USD"}}
+        {
+            "method": "POST",
+            "gateway_path": "/api/v1/payments/process",
+            "direct_path": "/api/payments/process",
+            "fallback_port": 8083,
+            "payload": lambda: {"orderId": str(uuid.uuid4()), "amount": 99.99, "currency": "USD"}
+        }
     ]
 }
 
@@ -29,14 +65,12 @@ CHAOS_ENDPOINTS = [
 ]
 
 CHAOS_PORTS = {
-    "gateway": 8080,
     "auth": 8081,
     "order": 8082,
     "payment": 8083
 }
 
 def send_request(target_service="all"):
-    # Pick service
     available = ["auth", "order", "payment"] if target_service == "all" else [target_service]
     service = random.choice(available)
     
@@ -44,47 +78,47 @@ def send_request(target_service="all"):
     
     if action == "normal":
         ep = random.choice(ENDPOINTS[service])
-        url = f"{GATEWAY_URL}{ep['path']}"
+        url = f"{GATEWAY_URL}{ep['gateway_path']}"
         try:
             payload = ep['payload']() if ep['payload'] else None
             if ep['method'] == "POST":
                 res = requests.post(url, json=payload, timeout=3.0)
             else:
                 res = requests.get(url, timeout=3.0)
-            print(f"[LOAD] [{service.upper()}] {ep['method']} {ep['path']} -> {res.status_code}")
+            logger.info(f"[{service.upper()}] {ep['method']} {ep['gateway_path']} -> {res.status_code}")
         except Exception:
             # Fallback to direct service port
             port = ep['fallback_port']
-            fallback_path = ep['path'].replace("/api/v1/orders", "/api/orders").replace("/api/v1/payments", "/api/payments")
-            fallback_url = f"http://localhost:{port}{fallback_path}"
+            fallback_url = f"http://{TARGET_HOST}:{port}{ep['direct_path']}"
             try:
                 payload = ep['payload']() if ep['payload'] else None
                 if ep['method'] == "POST":
                     res = requests.post(fallback_url, json=payload, timeout=3.0)
                 else:
                     res = requests.get(fallback_url, timeout=3.0)
-                print(f"[LOAD-FALLBACK] [{service.upper()}] {ep['method']} {fallback_url} -> {res.status_code}")
+                logger.info(f"[FALLBACK] [{service.upper()}] {ep['method']} {fallback_url} -> {res.status_code}")
             except Exception as ex:
-                print(f"[ERROR] [{service.upper()}] {url} failed: {ex}")
+                logger.error(f"[{service.upper()}] {url} failed: {ex}")
     else:
-        # Chaos trigger
+        # Chaos trigger directly on service port with security header
         c_ep = random.choice(CHAOS_ENDPOINTS)
-        port = CHAOS_PORTS.get(service, 8080)
-        c_url = f"http://localhost:{port}{c_ep['path']}"
+        port = CHAOS_PORTS.get(service, 8081)
+        c_url = f"http://{TARGET_HOST}:{port}{c_ep['path']}"
+        headers = {"X-Chaos-Token": CHAOS_SECRET}
         try:
-            res = requests.get(c_url, timeout=c_ep['timeout'])
-            print(f"[CHAOS-TRIGGER] [{service.upper()}] GET {c_url} -> {res.status_code}")
+            res = requests.get(c_url, headers=headers, timeout=c_ep['timeout'])
+            logger.info(f"[CHAOS-TRIGGER] [{service.upper()}] GET {c_url} -> {res.status_code}")
         except Exception as e:
-            print(f"[CHAOS-TRIGGER] [{service.upper()}] {c_url} -> Expected fault/timeout: {e}")
+            logger.warning(f"[CHAOS-TRIGGER] [{service.upper()}] {c_url} -> Expected fault/timeout: {e}")
 
 def run_generator(target_service="all", duration=0):
     start_time = time.time()
-    print(f"Starting Auto-SRE Traffic Generator (Target: {target_service}, Duration: {'Infinite' if duration == 0 else f'{duration}s'})...")
+    logger.info(f"Starting Auto-SRE Traffic Generator (Target: {target_service}, Duration: {'Infinite' if duration == 0 else f'{duration}s'})...")
     
     while True:
         send_request(target_service)
         if duration > 0 and (time.time() - start_time) >= duration:
-            print("[+] Traffic generation duration completed.")
+            logger.info("Traffic generation duration completed.")
             break
         time.sleep(random.uniform(0.5, 2.0))
 

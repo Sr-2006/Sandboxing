@@ -17,3 +17,7 @@ spring:
 management:
   tracing:
     enabled: false
+
+chaos:
+  enabled: true
+  token: test-chaos-token

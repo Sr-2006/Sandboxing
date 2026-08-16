@@ -8,6 +8,7 @@ Usage:
 Exit code 0 = all gates pass.
 """
 import argparse
+import fnmatch
 import json
 import re
 import subprocess
@@ -25,6 +26,39 @@ def gate(name, passed, detail=""):
 def read(path):
     p = ROOT / path
     return p.read_text(encoding="utf-8", errors="ignore") if p.exists() else ""
+
+
+def _gitignore_patterns():
+    """Return (negations, patterns) parsed from .gitignore (comments/blank lines dropped)."""
+    negations, patterns = [], []
+    for raw in read(".gitignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("!"):
+            negations.append(line[1:])
+        else:
+            patterns.append(line)
+    return negations, patterns
+
+
+def _match_pattern(relpath, pattern):
+    """Approximate gitignore matching for the patterns used in this repo."""
+    relpath = relpath.replace("\\", "/")
+    pattern = pattern.rstrip("/")
+    if "/" in pattern:
+        # Anchored to repo root: match the path or any descendant.
+        return fnmatch.fnmatch(relpath, pattern) or fnmatch.fnmatch(relpath, pattern + "/*")
+    # Unanchored: match against the basename at any depth.
+    return fnmatch.fnmatch(relpath.split("/")[-1], pattern)
+
+
+def _is_gitignored(relpath):
+    negations, patterns = _gitignore_patterns()
+    ignored = any(_match_pattern(relpath, p) for p in patterns)
+    if ignored and any(_match_pattern(relpath, n) for n in negations):
+        ignored = False
+    return ignored
 
 # ---------------- Static gates ----------------
 
@@ -49,14 +83,18 @@ def static_gates():
         bad = [f for f in tracked if f.endswith((".json", ".bin", ".meta", ".log"))]
         gate("no_generated_artifacts_tracked", not bad, f"tracked={bad[:5]}" if bad else "clean")
     except FileNotFoundError:
-        # git unavailable (e.g., slim CI image with archive checkout): in an
-        # archive checkout only tracked files exist, so a disk check is equivalent.
+        # git unavailable (e.g., slim CI image with archive checkout). A disk
+        # check is only equivalent to "tracked" for files NOT matched by
+        # .gitignore; gitignored files can never be tracked. The validate job
+        # reuses the integration build dir, so generated frontend_data/*.json
+        # may be present on disk even though they are gitignored/untracked.
         present = [str(p.relative_to(ROOT)) for p in (ROOT / "frontend_data").glob("*")
                    if p.suffix in (".json", ".bin", ".meta", ".log")]
         if (ROOT / "validation_report.json").exists():
             present.append("validation_report.json")
-        gate("no_generated_artifacts_tracked", not present,
-             f"present={present[:5]}" if present else "clean (no git; disk check)")
+        tracked_like = [f for f in present if not _is_gitignored(f)]
+        gate("no_generated_artifacts_tracked", not tracked_like,
+             f"tracked={tracked_like[:5]}" if tracked_like else "clean (no git; gitignore-aware disk check)")
 
     # WS3: pinned python deps
     unpinned = [line.strip() for line in read("requirements.txt").splitlines()

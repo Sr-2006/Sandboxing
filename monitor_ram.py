@@ -2,11 +2,11 @@ import time
 import os
 import psutil
 from datetime import datetime, timezone
-from utils import get_logger
+from utils import get_logger, project_path
 
 logger = get_logger("ram_monitor")
 
-LOG_FILE = os.path.join("frontend_data", "health_warnings.log")
+LOG_FILE = project_path("frontend_data", "health_warnings.log")
 MAX_LOG_SIZE = 1024 * 1024  # 1 MB
 THRESHOLD_PERCENT = 90.0
 CHECK_INTERVAL_SECONDS = 10.0

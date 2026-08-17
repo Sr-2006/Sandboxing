@@ -45,16 +45,20 @@ def get_service_url(service_name: str) -> str:
     if not port:
         raise ValueError(f"Unknown service: {service_name}")
     
-    # Check if target host port is accessible
+    # Check if target host port is accessible (FIX M8: socket cleanup in finally)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.2)
     try:
         s.connect((TARGET_HOST, port))
-        s.close()
         return f"http://{TARGET_HOST}:{port}"
     except (socket.error, OSError):
         # Fall back to Docker service name routing
         return f"http://{service_name}:{port}"
+    finally:
+        try:
+            s.close()
+        except (socket.error, OSError):
+            pass
 
 def get_container(target: str):
     if not client:
@@ -75,7 +79,8 @@ def log_chaos_event(
     params: Optional[Dict[str, Any]],
     duration: float,
     status: str = "injected",
-    scenario_id: str = "adhoc"
+    scenario_id: str = "adhoc",
+    filepath: Optional[str] = None
 ) -> None:
     try:
         record_chaos_event(
@@ -86,7 +91,8 @@ def log_chaos_event(
             params=params or {},
             duration_s=duration,
             status=status,
-            scenario_id=scenario_id
+            scenario_id=scenario_id,
+            filepath=filepath
         )
     except Exception as e:
         logger.error(f"Failed to record chaos history: {e}")
@@ -135,15 +141,22 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
 
     elif fault_name == "network_latency":
         c = get_container(target)
-        latency_ms = params.get("latency_ms", 200)
+        # FIX H2: Input validation and list-form exec_run (no shell injection)
+        latency_ms = int(params.get("latency_ms", 200))
+        if not (1 <= latency_ms <= 10000):
+            raise ValueError(f"latency_ms must be between 1 and 10000, got {latency_ms}")
         try:
-            c.exec_run(f"tc qdisc add dev eth0 root netem delay {latency_ms}ms")
+            c.exec_run(["tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", f"{latency_ms}ms"])
             logger.info(f"Container {c.name} injected {latency_ms}ms network latency via tc")
         except Exception as e:
             logger.warning(f"Could not inject tc latency (missing cap_add NET_ADMIN?): {e}")
 
     elif fault_name == "rabbitmq_backlog":
+        # FIX H2: Message count validation (1..100000)
         num_msg = int(params.get("messages", 1000))
+        if not (1 <= num_msg <= 100000):
+            raise ValueError(f"messages must be between 1 and 100000, got {num_msg}")
+        
         connection = None
         for host in [TARGET_HOST, "rabbitmq"]:
             try:
@@ -156,12 +169,19 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
                 continue
         if not connection:
             raise pika.exceptions.AMQPConnectionError("Could not connect to RabbitMQ broker")
-        channel = connection.channel()
-        channel.queue_declare(queue='chaos_queue', durable=False, exclusive=False, auto_delete=False)
-        for i in range(num_msg):
-            channel.basic_publish(exchange='', routing_key='chaos_queue', body=f'Chaos message {i}')
-        connection.close()
-        logger.info(f"Injected {num_msg} messages into chaos_queue")
+        
+        # FIX M8: Wrapped in try/finally to prevent resource leaks
+        try:
+            channel = connection.channel()
+            channel.queue_declare(queue='chaos_queue', durable=False, exclusive=False, auto_delete=False)
+            for i in range(num_msg):
+                channel.basic_publish(exchange='', routing_key='chaos_queue', body=f'Chaos message {i}')
+            logger.info(f"Injected {num_msg} messages into chaos_queue")
+        finally:
+            try:
+                connection.close()
+            except (pika.exceptions.AMQPError, socket.error, OSError):
+                pass
 
     elif fault_name == "http_slow":
         url = get_service_url(target)
@@ -256,7 +276,8 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
     elif fault_name == "network_latency":
         c = get_container(target)
         try:
-            c.exec_run("tc qdisc del dev eth0 root")
+            # FIX H2: list-form exec_run
+            c.exec_run(["tc", "qdisc", "del", "dev", "eth0", "root"])
             logger.info(f"Container {c.name} network latency removed")
         except Exception as e:
             logger.warning(f"Could not remove tc latency: {e}")
@@ -273,15 +294,18 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
             except (pika.exceptions.AMQPError, socket.error, OSError):
                 continue
         if connection:
-            channel = connection.channel()
             try:
+                channel = connection.channel()
                 channel.queue_purge(queue='chaos_queue')
                 channel.queue_delete(queue='chaos_queue')
                 logger.info("Purged and deleted chaos_queue successfully")
             except (pika.exceptions.AMQPError, socket.error, OSError) as e:
                 logger.warning(f"Failed to clean rabbitmq queue: {e}")
             finally:
-                connection.close()
+                try:
+                    connection.close()
+                except (pika.exceptions.AMQPError, socket.error, OSError):
+                    pass
 
     elif fault_name == "http_memory_leak":
         url = get_service_url(target)
@@ -328,11 +352,22 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ARA Chaos Orchestrator CLI")
-    parser.add_argument("--fault", type=str, required=True, help="Chaos fault type")
-    parser.add_argument("--target", type=str, required=True, help="Target container name or HTTP service name")
+    parser.add_argument("--fault", type=str, required=False, help="Chaos fault type")
+    parser.add_argument("--target", type=str, required=False, help="Target container name or HTTP service name")
     parser.add_argument("--recover", action="store_true", help="Recover the specified fault")
     parser.add_argument("--params", type=str, default="{}", help="JSON params string")
+    parser.add_argument("--reconcile", action="store_true", help="Reconcile stale unrecovered chaos events via watchdog")
     args = parser.parse_args()
+
+    if args.reconcile:
+        from chaos_watchdog import reconcile_stale_chaos_events
+        reconciled = reconcile_stale_chaos_events()
+        logger.info(f"Reconciled {reconciled} stale chaos events.")
+        sys.exit(0)
+
+    if not args.fault or not args.target:
+        logger.error("--fault and --target are required unless --reconcile is specified")
+        sys.exit(1)
 
     try:
         params_dict = json.loads(args.params)

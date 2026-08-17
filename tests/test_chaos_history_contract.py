@@ -17,9 +17,9 @@ def test_chaos_history_entry_structure(tmp_path, monkeypatch):
     # Trigger log_chaos_event
     start_ts = "2026-08-15T12:00:00+00:00"
     end_ts = "2026-08-15T12:00:15+00:00"
-    log_chaos_event("pause_container", "payment-service", start_ts, end_ts, {"duration": 15}, 15.0, status="injected", scenario_id="test-scenario-1")
-
     target_file = tmp_path / "frontend_data" / "chaos_history.json"
+    log_chaos_event("pause_container", "payment-service", start_ts, end_ts, {"duration": 15}, 15.0, status="injected", scenario_id="test-scenario-1", filepath=str(target_file))
+
     assert target_file.exists()
 
     with open(target_file, "r", encoding="utf-8") as f:

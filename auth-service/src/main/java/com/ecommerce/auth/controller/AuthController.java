@@ -28,13 +28,17 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
-    @Value("${jwt.secret:9a4f2c8d3b7a1e5f8c3d6b2a1f4e7d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e}")
+    @Value("${jwt.secret:}")
     private String jwtSecret;
 
     public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+    }
+
+    public void setJwtSecret(String jwtSecret) {
+        this.jwtSecret = jwtSecret;
     }
 
     @PostMapping("/register")

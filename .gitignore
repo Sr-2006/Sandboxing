@@ -28,5 +28,7 @@ phase1_test_report.md
 frontend_data/*.json
 frontend_data/*.meta
 frontend_data/*.bin
+frontend_data/*.lock
 frontend_data/health_warnings.log
+*.lock
 !frontend_data/.gitkeep

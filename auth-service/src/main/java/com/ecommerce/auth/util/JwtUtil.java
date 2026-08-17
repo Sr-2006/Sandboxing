@@ -3,6 +3,7 @@ package com.ecommerce.auth.util;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -15,11 +16,18 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
-    @Value("${jwt.secret:9a4f2c8d3b7a1e5f8c3d6b2a1f4e7d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e}")
+    @Value("${jwt.secret:}")
     private String jwtSecret;
 
     @Value("${jwt.expiration-ms:86400000}")
     private long jwtExpirationMs;
+
+    @PostConstruct
+    public void validateSecret() {
+        if (jwtSecret == null || jwtSecret.trim().length() < 32) {
+            throw new IllegalStateException("JWT Secret must be configured and at least 32 characters long");
+        }
+    }
 
     public void setJwtSecret(String jwtSecret) {
         this.jwtSecret = jwtSecret;

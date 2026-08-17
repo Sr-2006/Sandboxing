@@ -17,6 +17,9 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 @RestController
 @RequestMapping("/chaos")
@@ -25,6 +28,9 @@ public class ChaosController {
 
     private static final List<byte[][]> memoryLeakList = new CopyOnWriteArrayList<>();
     private static final List<Thread> deadlockThreads = new CopyOnWriteArrayList<>();
+    private static final ReentrantLock lock1 = new ReentrantLock();
+    private static final ReentrantLock lock2 = new ReentrantLock();
+    private static final AtomicBoolean deadlockCancelled = new AtomicBoolean(false);
 
     @Value("${chaos.token:}")
     private String chaosToken;
@@ -115,32 +121,47 @@ public class ChaosController {
     public ResponseEntity<?> deadlock(
             @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
         validateToken(token);
-        Object lock1 = new Object();
-        Object lock2 = new Object();
+        deadlockCancelled.set(false);
 
         Thread t1 = new Thread(() -> {
-            synchronized (lock1) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+            lock1.lock();
+            try {
+                while (!deadlockCancelled.get()) {
+                    try {
+                        if (lock2.tryLock(100, TimeUnit.MILLISECONDS)) {
+                            try {
+                                break;
+                            } finally {
+                                lock2.unlock();
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        break;
+                    }
                 }
-                synchronized (lock2) {
-                    System.out.println("[Chaos] Deadlock thread 1 completed");
-                }
+            } finally {
+                lock1.unlock();
             }
         }, "Chaos-Deadlock-Thread-1");
 
         Thread t2 = new Thread(() -> {
-            synchronized (lock2) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+            lock2.lock();
+            try {
+                while (!deadlockCancelled.get()) {
+                    try {
+                        if (lock1.tryLock(100, TimeUnit.MILLISECONDS)) {
+                            try {
+                                break;
+                            } finally {
+                                lock1.unlock();
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        break;
+                    }
                 }
-                synchronized (lock1) {
-                    System.out.println("[Chaos] Deadlock thread 2 completed");
-                }
+            } finally {
+                lock2.unlock();
             }
         }, "Chaos-Deadlock-Thread-2");
 
@@ -159,14 +180,30 @@ public class ChaosController {
     public ResponseEntity<?> clearDeadlock(
             @RequestHeader(value = "X-Chaos-Token", required = false) String token) {
         validateToken(token);
+        deadlockCancelled.set(true);
         for (Thread t : deadlockThreads) {
             if (t.isAlive()) {
                 t.interrupt();
             }
         }
-        deadlockThreads.clear();
+        for (Thread t : deadlockThreads) {
+            try {
+                t.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        long surviving = deadlockThreads.stream().filter(Thread::isAlive).count();
+        deadlockThreads.removeIf(t -> !t.isAlive());
+
         Map<String, Object> response = new HashMap<>();
-        response.put("status", "deadlock_cleared");
+        if (surviving == 0) {
+            response.put("status", "deadlock_cleared");
+            response.put("active_threads", 0);
+        } else {
+            response.put("status", "deadlock_clear_partial");
+            response.put("active_threads", (int) surviving);
+        }
         return ResponseEntity.ok(response);
     }
 
@@ -242,9 +279,17 @@ public class ChaosController {
     @PreDestroy
     public void cleanup() {
         memoryLeakList.clear();
+        deadlockCancelled.set(true);
         for (Thread t : deadlockThreads) {
             if (t.isAlive()) {
                 t.interrupt();
+            }
+        }
+        for (Thread t : deadlockThreads) {
+            try {
+                t.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
         deadlockThreads.clear();

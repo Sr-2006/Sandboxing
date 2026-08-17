@@ -4,6 +4,7 @@ x-chaos-env: &chaos-env
   SPRING_PROFILES_ACTIVE: "dev"
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env}"
+  INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be set in .env}"
 
 services:
   postgres-db:
@@ -13,7 +14,7 @@ services:
       - "ara.topology.group=backend"
       - "ara.topology.role=relational-database"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:?POSTGRES_USER must be set in .env}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
@@ -36,18 +37,21 @@ services:
   redis:
     image: redis:7.2.4-alpine
     container_name: redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"]
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=cache"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     mem_limit: 256M
     deploy:
       resources:
         limits:
           memory: 256M
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -61,8 +65,8 @@ services:
       - "ara.topology.group=backend"
       - "ara.topology.role=message-broker"
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:?RABBITMQ_DEFAULT_USER must be set in .env}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS must be set in .env}
@@ -85,7 +89,7 @@ services:
     labels:
       - "ara.topology.role=observability-query"
     ports:
-      - "16686:16686"
+      - "127.0.0.1:16686:16686"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     mem_limit: 512M
@@ -104,24 +108,19 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
     ports:
-      - "1888:1888"
-      - "8888:8888"
-      - "8889:8889"
-      - "13133:13133"
-      - "4317:4317"
-      - "4318:4318"
-      - "55679:55679"
+      - "127.0.0.1:1888:1888"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:8889:8889"
+      - "127.0.0.1:13133:13133"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:55679:55679"
     mem_limit: 256M
     deploy:
       resources:
         limits:
           memory: 256M
     restart: "on-failure:3"
-    # NOTE: no healthcheck here — the otel/opentelemetry-collector-contrib image
-    # is scratch-based (no shell, no wget/curl), so an in-container healthcheck
-    # command can never execute. The health_check extension on :13133 is still
-    # enabled for external probes; `docker compose up --wait` treats a running
-    # container without a healthcheck as ready.
     depends_on:
       - jaeger
 
@@ -133,7 +132,7 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     mem_limit: 512M
     deploy:
       resources:
@@ -147,12 +146,12 @@ services:
     labels:
       - "ara.topology.role=observability-viz"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER must be set in .env}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
     mem_limit: 256M
     deploy:
       resources:
@@ -172,7 +171,7 @@ services:
       - "ara.topology.group=backend"
       - "ara.topology.role=edge-routing-and-rate-limiting"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       <<: *chaos-env
       AUTH_SERVICE_URL: "http://auth-service:8081"
@@ -181,8 +180,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "api-gateway"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/postgres"
-      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
-      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
     mem_limit: 512M
     deploy:
       resources:
@@ -206,14 +205,15 @@ services:
       - "ara.topology.group=backend"
       - "ara.topology.role=authentication-service"
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
       <<: *chaos-env
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/auth_db"
-      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
-      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
       SPRING_REDIS_HOST: "redis"
       SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: "${REDIS_PASSWORD}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "auth-service"
     mem_limit: 384M
@@ -241,12 +241,12 @@ services:
       - "ara.topology.group=backend"
       - "ara.topology.role=order-processing"
     ports:
-      - "8082:8082"
+      - "127.0.0.1:8082:8082"
     environment:
       <<: *chaos-env
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/order_db"
-      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
-      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "order-service"
     mem_limit: 512M
@@ -273,12 +273,12 @@ services:
       - "ara.topology.group=backend"
       - "ara.topology.role=payment-processing"
     ports:
-      - "8083:8083"
+      - "127.0.0.1:8083:8083"
     environment:
       <<: *chaos-env
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-db:5432/payment_db"
-      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
-      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       OTEL_SERVICE_NAME: "payment-service"
     mem_limit: 512M
@@ -301,7 +301,7 @@ services:
     labels:
       - "ara.topology.role=observability-logging"
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
     command: ["-config.file=/etc/loki/loki-config.yaml"]

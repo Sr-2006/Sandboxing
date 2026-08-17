@@ -14,6 +14,10 @@ spring:
   flyway:
     enabled: false
 
+internal:
+  service:
+    token: test-internal-token
+
 management:
   tracing:
     enabled: false

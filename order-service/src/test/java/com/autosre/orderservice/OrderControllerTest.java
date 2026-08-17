@@ -20,17 +20,37 @@ public class OrderControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("Place order endpoint returns 200 OK")
+    @DisplayName("Place order endpoint returns 200 OK when authenticated with internal token and user header")
     void testPlaceOrderSuccess() throws Exception {
-        mockMvc.perform(post("/api/orders"))
+        mockMvc.perform(post("/api/orders")
+                        .header("X-Internal-Service-Token", "test-internal-token")
+                        .header("X-User-Id", "john_doe"))
                 .andExpect(status().isOk())
                 .andExpect(content().string("Order successfully placed"));
     }
 
     @Test
-    @DisplayName("Chaos error endpoint returns 500 INTERNAL_SERVER_ERROR")
+    @DisplayName("Place order endpoint returns 401 UNAUTHORIZED when internal token is missing")
+    void testPlaceOrderMissingToken() throws Exception {
+        mockMvc.perform(post("/api/orders")
+                        .header("X-User-Id", "john_doe"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Place order endpoint returns 401 UNAUTHORIZED when X-User-Id is missing")
+    void testPlaceOrderMissingUserId() throws Exception {
+        mockMvc.perform(post("/api/orders")
+                        .header("X-Internal-Service-Token", "test-internal-token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Chaos error endpoint returns 500 INTERNAL_SERVER_ERROR when authenticated")
     void testSimulateError() throws Exception {
-        mockMvc.perform(get("/api/orders/chaos/error"))
+        mockMvc.perform(get("/api/orders/chaos/error")
+                        .header("X-Internal-Service-Token", "test-internal-token")
+                        .header("X-User-Id", "john_doe"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(content().string("Simulated Database Crash"));
     }

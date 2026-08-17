@@ -31,8 +31,11 @@ if command -v free >/dev/null 2>&1; then
   fi
 fi
 
-if [ "${CHAOS_SECRET:-}" = "dev-chaos-token" ] && [ "${ENABLE_CHAOS:-false}" = "true" ]; then
-  echo "[!] SECURITY NOTICE: CHAOS_SECRET is using default 'dev-chaos-token'."
+# FIX C6: Hard fail if chaos is enabled with placeholder / insecure tokens
+if [ "${ENABLE_CHAOS:-false}" = "true" ] && { [ "${CHAOS_SECRET:-}" = "dev-chaos-token" ] || [ "${CHAOS_SECRET:-}" = "CHANGE_ME_chaos_secret" ]; }; then
+  echo "[-] ERROR: ENABLE_CHAOS is true but CHAOS_SECRET is set to a default/insecure placeholder ('${CHAOS_SECRET:-}')."
+  echo "    Please set a secure, non-default CHAOS_SECRET in .env before enabling chaos."
+  exit 1
 fi
 
 # 1. Clean existing containers
@@ -49,6 +52,7 @@ sleep 20
 
 # 4. Launch background daemons
 echo "[4/4] Launching background telemetry and monitoring daemons..."
+pkill -f 'continuous_telemetry.py|frontend_data_sync.py|monitor_ram.py' 2>/dev/null || true
 python continuous_telemetry.py &
 python frontend_data_sync.py &
 python monitor_ram.py &

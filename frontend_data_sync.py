@@ -2,15 +2,16 @@ import os
 import time
 import gc
 from datetime import datetime, timezone
-from utils import atomic_write_json, read_json_file, get_logger
+from utils import atomic_write_json, read_json_file, get_logger, project_path
+from package_ml_dataset import parse_docker_compose_topology
 
 logger = get_logger("frontend_data_sync")
 
-OUTPUT_DIR = "frontend_data"
-RAW_TELEMETRY_FILE = os.path.join(OUTPUT_DIR, "raw_telemetry.json")
-TIME_SERIES_FILE = os.path.join(OUTPUT_DIR, "time_series.json")
-STATUS_FILE = os.path.join(OUTPUT_DIR, "status.json")
-ANALYTICS_FILE = os.path.join(OUTPUT_DIR, "analytics.json")
+OUTPUT_DIR = project_path("frontend_data")
+RAW_TELEMETRY_FILE = project_path("frontend_data", "raw_telemetry.json")
+TIME_SERIES_FILE = project_path("frontend_data", "time_series.json")
+STATUS_FILE = project_path("frontend_data", "status.json")
+ANALYTICS_FILE = project_path("frontend_data", "analytics.json")
 
 MAX_TIME_SERIES_ENTRIES = 5000
 MAX_HEALTH_HISTORY_ENTRIES = 100
@@ -18,37 +19,33 @@ SYNC_INTERVAL = 5.0
 
 CRITICAL_SERVICES = {"api-gateway", "postgres-db", "otel-collector"}
 
-# Static dependency mapping parsed from docker-compose.yml configuration
-SERVICE_DEPENDENCIES = {
-    "api-gateway": ["auth-service", "order-service", "payment-service", "otel-collector"],
-    "auth-service": ["postgres-db", "redis", "otel-collector"],
-    "order-service": ["postgres-db", "otel-collector"],
-    "payment-service": ["postgres-db", "otel-collector"],
-    "postgres-db": [],
-    "redis": [],
-    "rabbitmq": [],
-    "otel-collector": [],
-    "loki": [],
-    "prometheus": [],
-    "grafana": [],
-    "jaeger": []
-}
+# Dynamic Topology Cache (Single source of truth from docker-compose.yml)
+_TOPOLOGY_CACHE = {"mtime": None, "data": None}
+
+def get_topology():
+    compose_file = project_path("docker-compose.yml")
+    mtime = os.path.getmtime(compose_file) if os.path.exists(compose_file) else 0
+    if _TOPOLOGY_CACHE["mtime"] != mtime or _TOPOLOGY_CACHE["data"] is None:
+        _TOPOLOGY_CACHE["data"] = parse_docker_compose_topology()
+        _TOPOLOGY_CACHE["mtime"] = mtime
+    return _TOPOLOGY_CACHE["data"]
 
 def log_msg(msg: str):
     logger.info(msg)
 
 def compute_container_health_score(container: dict) -> float:
-    score = 100.0
     status = container.get("status", "running").lower()
+    if status in ("exited", "dead"):
+        return 0.0
+
+    score = 100.0
     health = (container.get("health") or "").lower()
     anomaly_score = float(container.get("anomaly_score", 0.0))
     mem_pct = float(container.get("memory_percent", 0.0))
     cpu_pct = float(container.get("cpu_percent", 0.0))
 
-    if status in ("exited", "dead"):
-        score -= 10.0
     if health == "unhealthy":
-        score -= 5.0
+        score -= 50.0
     if anomaly_score > 0.0:
         score -= min(30.0, anomaly_score * 10.0)
     if mem_pct > 90.0 or cpu_pct > 95.0:
@@ -120,7 +117,8 @@ def sync_cycle():
 
     system_health_score = round(weighted_score_sum / total_weight, 1) if total_weight > 0 else 100.0
 
-    # 5. Build status.json
+    # 5. Build status.json with single-source-of-truth topology dependencies
+    topo = get_topology()
     services_list = []
     for c in containers:
         c_name = c.get("name")
@@ -128,8 +126,8 @@ def sync_cycle():
         c_health = (c.get("health") or "healthy") if c_status == "running" else "unhealthy"
         c_score = container_health_map.get(c_name, 100.0)
 
-        # Build dependency states
-        deps = SERVICE_DEPENDENCIES.get(c_name, [])
+        # Build dependency states from docker-compose topology
+        deps = topo.get(c_name, {}).get("downstream_dependencies", [])
         dependency_states = {}
         for dep in deps:
             dep_score = container_health_map.get(dep, 100.0)

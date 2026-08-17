@@ -1,15 +1,27 @@
 import time
 import random
 import uuid
-import os
 import argparse
 import gc
+import signal
 import docker
 
 import chaos_orchestrator
-from utils import get_logger
+from chaos_watchdog import reconcile_stale_chaos_events
+from utils import get_logger, project_path
 
 logger = get_logger("chaos_scenarios")
+
+SHUTDOWN_REQUESTED = False
+
+def _signal_handler(signum, frame):
+    global SHUTDOWN_REQUESTED
+    SHUTDOWN_REQUESTED = True
+    logger.warning(f"Received signal {signum}. Initiating graceful shutdown and fault recovery...")
+
+signal.signal(signal.SIGINT, _signal_handler)
+if hasattr(signal, "SIGTERM"):
+    signal.signal(signal.SIGTERM, _signal_handler)
 
 try:
     client = docker.from_env()
@@ -36,7 +48,7 @@ FAULTS_CATALOG = [
     ("http_exhaust_pool", "http_service", lambda: {})
 ]
 
-HISTORY_FILE = os.path.join("frontend_data", "chaos_history.json")
+HISTORY_FILE = project_path("frontend_data", "chaos_history.json")
 
 def get_original_limits(container_name):
     if not client:
@@ -55,6 +67,12 @@ def get_original_limits(container_name):
         return {"memory": 0, "memswap": 0, "cpu_period": 0, "cpu_quota": -1}
 
 def select_and_run_scenario():
+    # Watchdog reconcile prior to running scenario
+    try:
+        reconcile_stale_chaos_events(HISTORY_FILE)
+    except Exception as w_err:
+        logger.warning(f"Watchdog pre-scenario reconciliation failed: {w_err}")
+
     scenario_id = str(uuid.uuid4())
     
     # Choose 2 or 3 distinct faults targeting different layers
@@ -72,6 +90,9 @@ def select_and_run_scenario():
     
     try:
         for fault_name, target_type, param_gen in selected_faults:
+            if SHUTDOWN_REQUESTED:
+                break
+
             target = None
             if target_type == "container":
                 available = [c for c in CONTAINERS if c not in targets_used]
@@ -109,7 +130,11 @@ def select_and_run_scenario():
             return
             
         logger.info(f"Sleeping for {duration} seconds while faults run...")
-        time.sleep(duration)
+        for _ in range(duration):
+            if SHUTDOWN_REQUESTED:
+                logger.info("Early break from scenario wait due to shutdown request.")
+                break
+            time.sleep(1)
         
     finally:
         logger.info("=== Recovering all injected faults ===")
@@ -146,7 +171,7 @@ if __name__ == "__main__":
         select_and_run_scenario()
     else:
         logger.info(f"Starting chaos loop with scenario interval: {args.interval}s")
-        while True:
+        while not SHUTDOWN_REQUESTED:
             try:
                 select_and_run_scenario()
             except KeyboardInterrupt:
@@ -154,4 +179,8 @@ if __name__ == "__main__":
                 break
             except Exception as e:
                 logger.error(f"Error in chaos loop: {e}")
-            time.sleep(args.interval)
+            
+            for _ in range(args.interval):
+                if SHUTDOWN_REQUESTED:
+                    break
+                time.sleep(1)

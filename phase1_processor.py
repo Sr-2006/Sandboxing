@@ -9,13 +9,21 @@ from drain3 import TemplateMiner
 from drain3.template_miner_config import TemplateMinerConfig
 from drain3.masking import MaskingInstruction
 from drain3.file_persistence import FilePersistence
-from utils import atomic_write_json, read_json_file, parse_iso_dt, get_logger, migrate_legacy_chaos_history
+from utils import (
+    atomic_write_json,
+    read_json_file,
+    parse_iso_dt,
+    get_logger,
+    migrate_legacy_chaos_history,
+    correlate_chaos_event,
+    project_path
+)
 from package_ml_dataset import parse_docker_compose_topology
 
 logger = get_logger("phase1_processor")
 
-DRAIN3_STATE_FILE = os.path.join("frontend_data", "drain3_state.bin")
-VERSION_HEADER_FILE = os.path.join("frontend_data", "drain3_version.meta")
+DRAIN3_STATE_FILE = project_path("frontend_data", "drain3_state.bin")
+VERSION_HEADER_FILE = project_path("frontend_data", "drain3_version.meta")
 PROCESSOR_VERSION = 2
 
 # ==========================================
@@ -39,9 +47,6 @@ config.masking_instructions = [
     MaskingInstruction(pattern=r"\x1b\[\d+(?:;\d+)*m", mask_with="ANSI"),
     MaskingInstruction(pattern=r"\x1b\[0m", mask_with="ANSI_RESET")
 ]
-
-persistence_handler = FilePersistence(DRAIN3_STATE_FILE)
-miner = TemplateMiner(persistence_handler=persistence_handler, config=config)
 
 REDIS_NOISE_RE = re.compile(
     r'(oO0OoO0OoO0Oo|Running in standalone mode|Port: \d+|'
@@ -142,7 +147,7 @@ def is_infra_noise(container_name: str, level: str, raw_content: str) -> bool:
 _TOPOLOGY_CACHE = {"mtime": None, "data": None}
 
 def get_topology():
-    compose_file = "docker-compose.yml"
+    compose_file = project_path("docker-compose.yml")
     mtime = os.path.getmtime(compose_file) if os.path.exists(compose_file) else 0
     if _TOPOLOGY_CACHE["mtime"] != mtime or _TOPOLOGY_CACHE["data"] is None:
         _TOPOLOGY_CACHE["data"] = parse_docker_compose_topology()
@@ -150,7 +155,7 @@ def get_topology():
     return _TOPOLOGY_CACHE["data"]
 
 # Multi-line Stack Trace Stitching Regexes
-EXCEPTION_START_RE = re.compile(r'^(?:.*\b)?(?:Exception|Error|Throwable|Caused by:)|^[A-Za-z_$][\w.$]*Exception\b')
+EXCEPTION_START_RE = re.compile(r'^(?:\S+\s+){0,6}\S*(?:Exception|Error|Throwable)\b|^Caused by:|^[A-Za-z_$][\w.$]*(?:Exception|Error)\b')
 CONTINUATION_RE = re.compile(r'^\s*at\s|^\s*\.\.\.|^\s*Caused by:|^\s*\.\.\.\s+\d+\s+more')
 
 def preprocess_log_header(line: str) -> str:
@@ -174,36 +179,31 @@ def stitch_log_events(events_data):
 
         first_line = raw_content.split("\n")[0].strip()
 
-        # Check if continuation line
+        # Check if continuation line for open buffer
         if container in buffers and (CONTINUATION_RE.match(raw_content) or CONTINUATION_RE.match(first_line)):
             buffers[container]["lines"].extend(raw_content.split("\n"))
+            buffers[container]["target_dict"]["content"] = "\n".join(buffers[container]["lines"])[:4000]
             continue
 
+        # If previous buffer exists for this container, close it (target_dict is already in stitched_events)
         if container in buffers:
-            b = buffers.pop(container)
-            merged_content = "\n".join(b["lines"])[:4000]
-            evt = dict(b["first_event"])
-            evt["content"] = merged_content
-            stitched_events.append(evt)
+            buffers.pop(container)
 
-        if EXCEPTION_START_RE.search(first_line) or EXCEPTION_START_RE.search(raw_content):
-            current_count = container_block_counts.get(container, 0)
-            if current_count < 50: # Bounded block cache per container
-                buffers[container] = {
-                    "first_event": event,
-                    "lines": raw_content.split("\n")
-                }
-                container_block_counts[container] = current_count + 1
-            else:
-                stitched_events.append(event)
-        else:
-            stitched_events.append(event)
+        is_exception_start = bool(EXCEPTION_START_RE.search(first_line) or EXCEPTION_START_RE.search(raw_content))
 
-    for container, b in buffers.items():
-        merged_content = "\n".join(b["lines"])[:4000]
-        evt = dict(b["first_event"])
-        evt["content"] = merged_content
-        stitched_events.append(evt)
+        evt_dict = dict(event)
+        stitched_events.append(evt_dict)
+
+        if is_exception_start:
+            container_block_counts[container] = container_block_counts.get(container, 0) + 1
+            buffers[container] = {
+                "lines": raw_content.split("\n"),
+                "target_dict": evt_dict
+            }
+
+    for b in buffers.values():
+        b["target_dict"]["content"] = "\n".join(b["lines"])[:4000]
+    buffers.clear()
 
     return stitched_events
 
@@ -272,17 +272,19 @@ def check_drain_version_and_reset_if_needed(force_reset: bool = False):
             f.write(str(PROCESSOR_VERSION))
 
 def process_phase1_incidents(reset_drain: bool = False):
-    events_file = os.path.join("frontend_data", "events_and_incidents.json")
-    status_file = os.path.join("frontend_data", "status.json")
-    raw_telemetry_file = os.path.join("frontend_data", "raw_telemetry.json")
-    time_series_file = os.path.join("frontend_data", "time_series.json")
-    chaos_history_file = os.path.join("frontend_data", "chaos_history.json")
-    output_file = os.path.join("frontend_data", "processed_incidents.json")
+    events_file = project_path("frontend_data", "events_and_incidents.json")
+    status_file = project_path("frontend_data", "status.json")
+    raw_telemetry_file = project_path("frontend_data", "raw_telemetry.json")
+    time_series_file = project_path("frontend_data", "time_series.json")
+    chaos_history_file = project_path("frontend_data", "chaos_history.json")
+    output_file = project_path("frontend_data", "processed_incidents.json")
 
     logger.info("=== [Auto-SRE Phase 1] Processing Inbound Telemetry & Log Clusters ===")
 
+    # FIX C5: Check version/reset first, then create fresh miner
     check_drain_version_and_reset_if_needed(reset_drain)
 
+    miner = TemplateMiner(persistence_handler=FilePersistence(DRAIN3_STATE_FILE), config=config)
     if os.path.exists(DRAIN3_STATE_FILE):
         try:
             miner.load_state()
@@ -304,7 +306,7 @@ def process_phase1_incidents(reset_drain: bool = False):
         atomic_write_json(output_file, empty_payload)
         return
 
-    # Multi-line stack trace stitching
+    # Multi-line stack trace stitching (FIX M1 & FIX M2)
     stitched_events = stitch_log_events(events_data)
 
     status_data = read_json_file(status_file, {}, retries=3)
@@ -464,28 +466,17 @@ def process_phase1_incidents(reset_drain: bool = False):
             "dependency_states": c_stat.get("dependency_states", {})
         }
 
-        chaos_mutation_desc = ""
-        cluster_start = c_info["earliest_dt"].timestamp()
-        cluster_end = c_info["latest_dt"].timestamp()
-
-        # Unified chaos event schema (utils.CHAOS_EVENT_SCHEMA):
-        # {event_id, scenario_id, fault_name, target, start_ts, end_ts, params, duration_s, status}
-        for event in chaos_history_data:
-            ev_start_dt = cached_parse_dt(event.get("start_ts", ""))
-            ev_end_dt = cached_parse_dt(event.get("end_ts", ""))
-            ev_dur = float(event.get("duration_s", 0.0))
-            ev_target = event.get("target", "")
-
-            ev_start = ev_start_dt.timestamp() - 300.0
-            ev_end = (ev_end_dt.timestamp() + 300.0) if event.get("end_ts") else (ev_start_dt.timestamp() + ev_dur + 300.0)
-
-            if (cluster_start <= ev_end and cluster_end >= ev_start) and (container_name == ev_target or not ev_target or container_name in ev_target):
-                fault_name = event.get("fault_name", "unknown")
-                status_str = event.get("status", "injected")
-                chaos_mutation_desc = f"Infrastructure orchestrator triggered {fault_name} on {ev_target} (duration: {ev_dur:.1f}s, status: {status_str})."
-                break
+        # Shared correlation function (FIX M3)
+        chaos_mutation_desc = correlate_chaos_event(
+            cluster_start_dt=c_info["earliest_dt"],
+            cluster_end_dt=c_info["latest_dt"],
+            container_name=container_name,
+            chaos_history_data=chaos_history_data
+        )
 
         incident_obj = {
+            "earliest_ts": c_info["earliest_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "latest_ts": c_info["latest_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"),
             "system_context": {
                 "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
                 "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
@@ -544,5 +535,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     process_phase1_incidents(reset_drain=args.reset_drain)
+
 def is_redis_noise(container_name: str, level: str, raw_content: str) -> bool:
     return is_infra_noise(container_name, level, raw_content)

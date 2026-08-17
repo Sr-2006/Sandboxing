@@ -4,7 +4,15 @@ import time
 import gc
 import subprocess
 from datetime import datetime, timezone
-from utils import atomic_write_json, read_json_file, parse_iso_dt, get_logger, migrate_legacy_chaos_history
+from utils import (
+    atomic_write_json,
+    read_json_file,
+    parse_iso_dt,
+    get_logger,
+    migrate_legacy_chaos_history,
+    correlate_chaos_event,
+    project_path
+)
 from phase1_schema import (
     UnifiedMasterDataset,
     DatasetMeta,
@@ -21,12 +29,12 @@ from phase1_schema import (
 
 logger = get_logger("package_ml_dataset")
 
-COMPOSE_FILE = "docker-compose.yml"
-STATUS_FILE = os.path.join("frontend_data", "status.json")
-TIME_SERIES_FILE = os.path.join("frontend_data", "time_series.json")
-PROCESSED_INCIDENTS_FILE = os.path.join("frontend_data", "processed_incidents.json")
-CHAOS_HISTORY_FILE = os.path.join("frontend_data", "chaos_history.json")
-OUTPUT_DATASET_FILE = os.path.join("frontend_data", "unified_master_dataset.json")
+COMPOSE_FILE = project_path("docker-compose.yml")
+STATUS_FILE = project_path("frontend_data", "status.json")
+TIME_SERIES_FILE = project_path("frontend_data", "time_series.json")
+PROCESSED_INCIDENTS_FILE = project_path("frontend_data", "processed_incidents.json")
+CHAOS_HISTORY_FILE = project_path("frontend_data", "chaos_history.json")
+OUTPUT_DATASET_FILE = project_path("frontend_data", "unified_master_dataset.json")
 
 def parse_docker_compose_topology():
     if not os.path.exists(COMPOSE_FILE):
@@ -200,26 +208,23 @@ def package_dataset():
             metrics_snapshot=metrics_snapshot
         )
 
-        # Injected Chaos Context (correlating unified chaos history)
-        chaos_mutation_desc = ""
-        sample_dts = [parse_iso_dt(ls.timestamp) for ls in log_samples] if log_samples else [parse_iso_dt(now_iso)]
-        cluster_start = min(sample_dts).timestamp()
-        cluster_end = max(sample_dts).timestamp()
+        # Injected Chaos Context (FIX M3: shared correlate_chaos_event using earliest/latest ts)
+        earliest_ts_str = inc.get("earliest_ts")
+        latest_ts_str = inc.get("latest_ts")
+        if earliest_ts_str and latest_ts_str:
+            cluster_start_dt = parse_iso_dt(earliest_ts_str)
+            cluster_end_dt = parse_iso_dt(latest_ts_str)
+        else:
+            sample_dts = [parse_iso_dt(ls.timestamp) for ls in log_samples] if log_samples else [parse_iso_dt(now_iso)]
+            cluster_start_dt = min(sample_dts)
+            cluster_end_dt = max(sample_dts)
 
-        for ev in chaos_history_data:
-            s_ts = ev.get("start_ts", "")
-            e_ts = ev.get("end_ts", "")
-            f_target = ev.get("target", "")
-            f_name = ev.get("fault_name", "")
-            dur = float(ev.get("duration_s", ev.get("duration", 0.0)))
-
-            ev_start = parse_iso_dt(s_ts).timestamp() - 300.0
-            ev_end = parse_iso_dt(e_ts).timestamp() + 300.0 if e_ts else ev_start + dur + 300.0
-
-            if (cluster_start <= ev_end and cluster_end >= ev_start) and (target_service == f_target or not f_target or target_service in f_target):
-                status_str = ev.get("status", "injected")
-                chaos_mutation_desc = f"Infrastructure orchestrator triggered {f_name} on {f_target} (duration: {dur:.1f}s, status: {status_str})."
-                break
+        chaos_mutation_desc = correlate_chaos_event(
+            cluster_start_dt=cluster_start_dt,
+            cluster_end_dt=cluster_end_dt,
+            container_name=target_service,
+            chaos_history_data=chaos_history_data
+        )
 
         injected_chaos_context = InjectedChaosContext(
             active_infrastructure_mutations=chaos_mutation_desc

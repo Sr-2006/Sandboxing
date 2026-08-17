@@ -16,12 +16,12 @@ if (-not (Test-Path .env)) {
     }
 }
 
-# 1. Environment Variables
-$env:ENABLE_CHAOS = "true"
+# 1. Environment Variables - Load from .env
+$env:ENABLE_CHAOS = "false"
 
-# Load CHAOS_SECRET / TARGET_HOST from .env so Python tooling matches the services
+# Load ENABLE_CHAOS / CHAOS_SECRET / TARGET_HOST / INTERNAL_SERVICE_TOKEN from .env
 Get-Content .env | ForEach-Object {
-    if ($_ -match '^\s*(CHAOS_SECRET|TARGET_HOST)\s*=\s*(.+)\s*$') {
+    if ($_ -match '^\s*(ENABLE_CHAOS|CHAOS_SECRET|TARGET_HOST|INTERNAL_SERVICE_TOKEN|REDIS_PASSWORD)\s*=\s*(.+)\s*$') {
         Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
     }
 }
@@ -40,17 +40,22 @@ try {
     # Fallback silently
 }
 
-if ($env:CHAOS_SECRET -eq "dev-chaos-token" -and $env:ENABLE_CHAOS -eq "true") {
-    Write-Host "[!] SECURITY NOTICE: CHAOS_SECRET is using default 'dev-chaos-token'. For non-dev deployments, customize in .env." -ForegroundColor Yellow
+# FIX C6: Hard fail if chaos is enabled with placeholder / insecure tokens
+if ($env:ENABLE_CHAOS -eq "true" -and ($env:CHAOS_SECRET -eq "dev-chaos-token" -or $env:CHAOS_SECRET -eq "CHANGE_ME_chaos_secret")) {
+    Write-Host "[-] ERROR: ENABLE_CHAOS is true but CHAOS_SECRET is set to a default/insecure placeholder ('$($env:CHAOS_SECRET)')." -ForegroundColor Red
+    Write-Host "    Please set a secure, non-default CHAOS_SECRET in .env before enabling chaos." -ForegroundColor Red
+    exit 1
 }
 
 # 2. Stop Existing Daemons & Clean Containers
 Write-Host "`n[1/4] Stopping and removing existing containers/volumes..." -ForegroundColor Yellow
-Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*continuous_telemetry*" -or $_.CommandLine -like "*frontend_data_sync*" -or $_.CommandLine -like "*monitor_ram*" } | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+  Where-Object { $_.CommandLine -match 'continuous_telemetry\.py|frontend_data_sync\.py|monitor_ram\.py' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 docker compose down -v --remove-orphans
 
 # 3. Build and Start Full Docker Stack
-Write-Host "`n[2/4] Building and launching Docker services with chaos enabled..." -ForegroundColor Yellow
+Write-Host "`n[2/4] Building and launching Docker services..." -ForegroundColor Yellow
 docker compose up -d --build
 
 # 4. Wait for Service Health Checks

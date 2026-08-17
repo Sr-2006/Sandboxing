@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class JwtUtilTest {
 
     private JwtUtil jwtUtil;
-    private final String secret = "9a4f2c8d3b7a1e5f8c3d6b2a1f4e7d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e";
+    private final String secret = "unitTestSecretKeyMustBe32BytesOrLongerForHmacSha256!";
 
     @BeforeEach
     void setUp() {
@@ -42,5 +42,15 @@ public class JwtUtilTest {
         String token = jwtUtil.generateToken("alice");
         String tampered = token.substring(0, token.length() - 5) + "abcde";
         assertFalse(jwtUtil.validateToken(tampered));
+    }
+
+    @Test
+    @DisplayName("validateSecret throws IllegalStateException when secret is too short or empty")
+    void testValidateSecretFailsFast() {
+        JwtUtil invalid = new JwtUtil();
+        assertThrows(IllegalStateException.class, invalid::validateSecret);
+
+        invalid.setJwtSecret("short");
+        assertThrows(IllegalStateException.class, invalid::validateSecret);
     }
 }

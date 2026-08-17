@@ -9,6 +9,11 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone, timedelta
 
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+def project_path(*parts: str) -> str:
+    return os.path.join(PROJECT_ROOT, *parts)
+
 CHAOS_EVENT_SCHEMA = {
     "event_id": str,        # uuid
     "scenario_id": str,     # group faults into scenarios
@@ -40,7 +45,19 @@ def atomic_write_json(filepath: str, data):
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(temp_path, filepath)
+        # best-effort directory fsync (POSIX only)
+        if sys.platform != "win32":
+            try:
+                dir_fd = os.open(dir_name or ".", os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass
     except Exception:
         if os.path.exists(temp_path):
             try:
@@ -103,11 +120,9 @@ def file_lock_context(filepath: str):
         except Exception:
             pass
         f.close()
-        try:
-            if os.path.exists(lock_file):
-                os.remove(lock_file)
-        except Exception:
-            pass
+        # Lock files are intentionally never deleted to prevent race conditions
+        # where a process holding a lock file reference has it unlinked while another
+        # process opens a new inode, breaking exclusivity.
 
 def record_chaos_event(
     fault_name: str,
@@ -119,11 +134,13 @@ def record_chaos_event(
     status: str = "injected",
     scenario_id: str = "adhoc",
     event_id: Optional[str] = None,
-    filepath: str = os.path.join("frontend_data", "chaos_history.json")
+    filepath: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Standard single writer for chaos_history.json ensuring unified schema and file lock safety.
     """
+    if filepath is None:
+        filepath = project_path("frontend_data", "chaos_history.json")
     if params is None:
         params = {}
     
@@ -148,15 +165,44 @@ def record_chaos_event(
     
     return event_entry
 
-def migrate_legacy_chaos_history(filepath: str = os.path.join("frontend_data", "chaos_history.json")) -> int:
+def correlate_chaos_event(
+    cluster_start_dt: datetime,
+    cluster_end_dt: datetime,
+    container_name: str,
+    chaos_history_data: list
+) -> str:
+    """
+    Correlate a log cluster with injected chaos events using a unified +/- 300s window.
+    Returns the human/LLM-readable mutation description string, or empty string if none.
+    """
+    cluster_start = cluster_start_dt.timestamp()
+    cluster_end = cluster_end_dt.timestamp()
+
+    for ev in chaos_history_data:
+        if not isinstance(ev, dict):
+            continue
+        s_ts = ev.get("start_ts", "")
+        e_ts = ev.get("end_ts", "")
+        f_target = ev.get("target", "")
+        f_name = ev.get("fault_name", "")
+        dur = float(ev.get("duration_s", ev.get("duration", 0.0)))
+
+        ev_start = parse_iso_dt(s_ts).timestamp() - 300.0
+        ev_end = parse_iso_dt(e_ts).timestamp() + 300.0 if e_ts else ev_start + dur + 300.0
+
+        if (cluster_start <= ev_end and cluster_end >= ev_start) and (container_name == f_target or not f_target or container_name in f_target):
+            status_str = ev.get("status", "injected")
+            return f"Infrastructure orchestrator triggered {f_name} on {f_target} (duration: {dur:.1f}s, status: {status_str})."
+    return ""
+
+def migrate_legacy_chaos_history(filepath: Optional[str] = None) -> int:
     """
     One-time migration of legacy scenario-schema chaos history entries to the unified
-    CHAOS_EVENT_SCHEMA. Legacy entries look like:
-        {scenario_id, timestamp, faults[], target_services[], duration, status}
-    Each legacy entry is expanded into one unified event per fault/target pair.
-    Already-unified entries (having start_ts/end_ts) are kept untouched.
-    Returns the number of legacy entries migrated (0 if none).
+    CHAOS_EVENT_SCHEMA.
     """
+    if filepath is None:
+        filepath = project_path("frontend_data", "chaos_history.json")
+
     with file_lock_context(filepath):
         history = read_json_file(filepath, [])
         if not isinstance(history, list) or not history:

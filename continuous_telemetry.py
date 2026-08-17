@@ -8,20 +8,21 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from typing import Tuple, Dict, Set
 from aiodocker import Docker
-from utils import atomic_write_json, get_logger
+from utils import atomic_write_json, get_logger, project_path
 
 logger = get_logger("continuous_telemetry")
 
-RAW_TELEMETRY_FILE = os.path.join("frontend_data", "raw_telemetry.json")
-EVENTS_FILE = os.path.join("frontend_data", "events_and_incidents.json")
+RAW_TELEMETRY_FILE = project_path("frontend_data", "raw_telemetry.json")
+EVENTS_FILE = project_path("frontend_data", "events_and_incidents.json")
 POLL_INTERVAL = 5.0
 MAX_SEEN_LOG_HASHES = 10000
-MAX_EVENTS = 5000
+MAX_EVENTS = 2000
 BUFFER_MAXLEN = 20
 
 # Metric rolling buffers: container_name -> metric_name -> deque
-buffers = collections.defaultdict(lambda: {
+buffers: Dict[str, Dict[str, collections.deque]] = collections.defaultdict(lambda: {
     "cpu_percent": collections.deque(maxlen=BUFFER_MAXLEN),
     "memory_percent": collections.deque(maxlen=BUFFER_MAXLEN),
     "network_rx_rate": collections.deque(maxlen=BUFFER_MAXLEN),
@@ -29,12 +30,42 @@ buffers = collections.defaultdict(lambda: {
 })
 
 # Previous cumulative network bytes and timestamps for rate calculation
-prev_net_state = {}
-seen_log_hashes = set()
-seen_log_hashes_queue = collections.deque(maxlen=MAX_SEEN_LOG_HASHES)
+prev_net_state: Dict[str, Tuple[int, int, float]] = {}
+seen_log_hashes: Set[str] = set()
+seen_log_hashes_queue: collections.deque = collections.deque(maxlen=MAX_SEEN_LOG_HASHES)
+
+DOCKER_TS_REGEX = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s(.*)$', re.DOTALL)
 
 def log_msg(msg: str):
     logger.info(msg)
+
+def parse_docker_log_line(raw_line: str) -> Tuple[str, str]:
+    text = raw_line.strip()
+    m = DOCKER_TS_REGEX.match(text)
+    if m:
+        return m.group(1), m.group(2).strip()
+    return "", text
+
+def compute_log_hash(container_name: str, docker_ts: str, content: str, line_ts: str) -> str:
+    ts_to_use = docker_ts if docker_ts else line_ts
+    return hashlib.sha256(f"{container_name}_{ts_to_use}_{content}".encode("utf-8")).hexdigest()
+
+def seed_seen_log_hashes_from_file(events_file: str):
+    if os.path.exists(events_file):
+        try:
+            with open(events_file, "r", encoding="utf-8") as f:
+                events = json.load(f)
+                if isinstance(events, list):
+                    for ev in events[-500:]:
+                        c_name = ev.get("container", "")
+                        c_ts = ev.get("timestamp", "")
+                        c_text = ev.get("content", "")
+                        h = hashlib.sha256(f"{c_name}_{c_ts}_{c_text}".encode("utf-8")).hexdigest()
+                        seen_log_hashes.add(h)
+                        seen_log_hashes_queue.append(h)
+            logger.info(f"Seeded {len(seen_log_hashes)} seen log hashes from existing events in '{events_file}'.")
+        except Exception as e:
+            logger.warning(f"Could not seed seen log hashes from '{events_file}': {e}")
 
 def compute_z_score(buffer: collections.deque, current_val: float) -> float:
     if len(buffer) < 5:
@@ -58,34 +89,28 @@ def parse_trace_span_ids(line: str):
             def find_keys(d):
                 t_val, s_val = None, None
                 if isinstance(d, dict):
-                    t_val = d.get("trace_id") or d.get("traceId") or d.get("trace")
-                    s_val = d.get("span_id") or d.get("spanId") or d.get("span")
-                    if t_val and s_val:
-                        return str(t_val), str(s_val)
                     for k, v in d.items():
-                        if isinstance(v, dict):
-                            t_sub, s_sub = find_keys(v)
-                            if t_sub and s_sub:
-                                return t_sub, s_sub
+                        k_lower = k.lower()
+                        if k_lower in ("trace_id", "traceid", "trace"):
+                            t_val = str(v)
+                        elif k_lower in ("span_id", "spanid", "span"):
+                            s_val = str(v)
+                        elif isinstance(v, dict):
+                            sub_t, sub_s = find_keys(v)
+                            t_val = t_val or sub_t
+                            s_val = s_val or sub_s
                 return t_val, s_val
-            t_id, s_id = find_keys(data)
-            if t_id and s_id:
-                return str(t_id), str(s_id)
+
+            t, s = find_keys(data)
+            if t and len(t) == 32 and s and len(s) == 16:
+                return t, s
         except Exception:
             pass
 
-    # Pass 2: W3C context header pass
-    w3c_match = re.search(r'trace_id=(?P<t>[a-fA-F0-9]{32}),\s*span_id=(?P<s>[a-fA-F0-9]{16})|traceparent=00-(?P<t2>[a-fA-F0-9]{32})-(?P<s2>[a-fA-F0-9]{16})-', line)
+    # Pass 2: Regex patterns
+    w3c_match = re.search(r'00-([a-fA-F0-9]{32})-([a-fA-F0-9]{16})-01', line)
     if w3c_match:
-        t_id = w3c_match.group('t') or w3c_match.group('t2')
-        s_id = w3c_match.group('s') or w3c_match.group('s2')
-        if t_id and s_id:
-            return t_id, s_id
-
-    # Pass 3: OTel Logback & Spring Boot Micrometer tracing patterns
-    spring_micrometer_match = re.search(r'\[[\w\-\.\s]+,\s*([a-fA-F0-9]{32}),\s*([a-fA-F0-9]{16})\]', line)
-    if spring_micrometer_match:
-        return spring_micrometer_match.group(1), spring_micrometer_match.group(2)
+        return w3c_match.group(1), w3c_match.group(2)
 
     otel_match = re.search(r'\[trace_id=([a-fA-F0-9]{32}),\s*span_id=([a-fA-F0-9]{16})\]', line)
     if otel_match:
@@ -220,10 +245,13 @@ async def collect_container_telemetry(container, now_ts: float):
         anomaly_score = max(anomaly_score, 30.0)
         active_warnings = max(active_warnings, 1)
 
-    # Process logs
+    # Process logs with Docker timestamps enabled
     new_event_entries = []
     try:
-        raw_logs = await container.log(stdout=True, stderr=True, tail=100)
+        raw_logs = await container.log(stdout=True, stderr=True, tail=100, timestamps=True)
+        if len(raw_logs) == 100:
+            logger.warning(f"Log tail saturated for container '{container_name}' (100 lines received). High log volume may cause loss.")
+
         for log_item in raw_logs:
             if isinstance(log_item, bytes):
                 text_line = log_item.decode("utf-8", errors="ignore").strip()
@@ -233,8 +261,12 @@ async def collect_container_telemetry(container, now_ts: float):
             if not text_line:
                 continue
 
-            line_ts = parse_line_timestamp(text_line)
-            hash_key = hashlib.sha256(f"{container_name}_{line_ts}_{text_line}".encode("utf-8")).hexdigest()
+            docker_ts, log_content = parse_docker_log_line(text_line)
+            if not log_content:
+                continue
+
+            line_ts = parse_line_timestamp(docker_ts) if docker_ts else parse_line_timestamp(log_content)
+            hash_key = compute_log_hash(container_name, docker_ts, log_content, line_ts)
 
             if hash_key not in seen_log_hashes:
                 seen_log_hashes.add(hash_key)
@@ -243,14 +275,15 @@ async def collect_container_telemetry(container, now_ts: float):
                     old_hash = seen_log_hashes_queue.popleft()
                     seen_log_hashes.discard(old_hash)
 
-                level = determine_log_level(text_line)
-                trace_id, span_id = parse_trace_span_ids(text_line)
+                level = determine_log_level(log_content)
+                trace_id, span_id = parse_trace_span_ids(log_content)
 
+                # FIX M7 & H5: Cap event content at 2000 chars
                 new_event_entries.append({
                     "timestamp": line_ts,
                     "container": container_name,
                     "level": level,
-                    "content": text_line[:8000],
+                    "content": log_content[:2000],
                     "trace_id": trace_id,
                     "span_id": span_id
                 })
@@ -280,6 +313,7 @@ async def collect_container_telemetry(container, now_ts: float):
 
 async def main():
     log_msg("Starting Continuous Async Telemetry Daemon...")
+    seed_seen_log_hashes_from_file(EVENTS_FILE)
     backoff = 1.0
 
     while True:
@@ -335,7 +369,7 @@ async def main():
                                 existing_events = []
 
                         combined_events = existing_events + all_new_events
-                        # Keep only the last MAX_EVENTS
+                        # Keep only the last MAX_EVENTS (capped at 2000)
                         if len(combined_events) > MAX_EVENTS:
                             combined_events = combined_events[-MAX_EVENTS:]
 

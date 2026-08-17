@@ -24,8 +24,15 @@ public class JwtValidationFilter implements GlobalFilter, Ordered {
     @Value("${AUTH_SERVICE_URL:http://localhost:8081}")
     private String authServiceUrl;
 
+    @Value("${INTERNAL_SERVICE_TOKEN:${internal.service.token:}}")
+    private String internalServiceToken;
+
     public JwtValidationFilter(WebClient.Builder webClientBuilder) {
         this.webClientBuilder = webClientBuilder;
+    }
+
+    public void setInternalServiceToken(String internalServiceToken) {
+        this.internalServiceToken = internalServiceToken;
     }
 
     @Override
@@ -38,8 +45,17 @@ public class JwtValidationFilter implements GlobalFilter, Ordered {
             correlationId = UUID.randomUUID().toString();
         }
 
+        // Strip client-supplied security headers to prevent header spoofing
         ServerHttpRequest.Builder requestBuilder = request.mutate()
+                .headers(h -> {
+                    h.remove("X-Internal-Service-Token");
+                    h.remove("X-User-Id");
+                })
                 .header("X-Correlation-ID", correlationId);
+
+        if (internalServiceToken != null && !internalServiceToken.isEmpty()) {
+            requestBuilder.header("X-Internal-Service-Token", internalServiceToken);
+        }
 
         if (path.startsWith("/api/v1/auth") || path.startsWith("/actuator")) {
             return chain.filter(exchange.mutate().request(requestBuilder.build()).build());

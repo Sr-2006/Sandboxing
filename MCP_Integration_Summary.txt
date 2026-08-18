@@ -1,0 +1,43 @@
+MCP Integration & Multi-Agent Architecture Summary
+
+This document outlines the integration of the Model Context Protocol (MCP) into the Auto-SRE platform. The primary objective is to standardize the communication layer between the foundational observability infrastructure and the AI reasoning core, enabling a highly secure, non-blocking, and scalable incident intelligence engine.
+
+---
+
+1. Executive Overview
+
+The Auto-SRE system operates on an event-driven, microservices-based architecture built with Java (Spring Boot). To analyze incidents, the platform utilizes a Multi-Agent Root Cause Analysis (RCA) engine featuring specialized AI agents (Optimist, Critic, Fact Checker, and Orchestrator). 
+
+We are implementing MCP to act as the universal middleware connecting these AI agents to the underlying backend (PostgreSQL, OpenTelemetry, Redis, ChromaDB). Instead of writing custom HTTP API wrappers for every database or logging service, MCP provides a strictly typed, standard protocol for the LLMs to request context and execute diagnostic commands.
+
+---
+
+2. Structural Blueprint
+
+The implementation decouples the AI orchestration from the infrastructure data extraction.
+
+*   The MCP Host (Client): The Multi-Agent Orchestrator, powered by the local qwen2.5:3b model via Ollama, acts as the central client. It connects to the infrastructure asynchronously using the mcp.client.sse protocol.
+*   The FastMCP Servers: Lightweight Python processes deployed alongside the data silos. These servers expose the underlying systems via Server-Sent Events (SSE), ensuring long-running diagnostic traces do not block the AI's processing loop.
+*   MCP Resources (Read-Only State): Core infrastructure data is exposed as read-only endpoints. This includes static files like processed_incidents.json from Phase 1 or real-time log ingestion. 
+*   MCP Tools (Executable Actions): Dynamic actions the LLM can trigger, such as executing a Prometheus PromQL query, retrieving a specific vector hash from ChromaDB (Phase 2), or executing Docker SDK commands in the remediation sandbox.
+
+---
+
+3. Security, Validation & Defensive Routing
+
+MCP intrinsically enhances the Phase 4 Three-Layer Hybrid Defensive Shell by shifting validation to the extreme left of the execution pipeline.
+
+*   Pydantic Schema Enforcement: Every MCP Tool requires a strict Pydantic model for its input arguments. If an AI agent hallucinates an argument or outputs malformed JSON, the FastMCP server instantly catches the ValidationError and returns a structured correction prompt to the agent, preventing pipeline crashes.
+*   Semantic Veto Integration: Tool payloads containing execution commands are evaluated against a pre-computed FORBIDDEN_CENTROIDS matrix. If the cosine similarity of the command (e.g., rm -rf) hits the threshold of >=0.82, the system triggers an instant veto.
+*   Tiered Fallback Routing: Any intercepted veto from the MCP server immediately caps the Orchestrator's confidence score at a maximum of 64%, automatically routing the action to the TIER_2_SHADOW_SANDBOX for human-in-the-loop verification.
+*   Hazard Metadata Flagging: The infrastructure payload is actively scanned for destructive lures, allowing the telemetry_hazard_detected flag to be set dynamically as data streams into the agent's context window.
+
+---
+
+4. System Workflow (Example Request)
+
+1.  Incident Trigger: The API Gateway detects an anomaly and clusters the logs via Phase 1 mechanisms.
+2.  Debate Initialization: The Orchestrator spins up the multi-agent debate (Optimist, Critic, Fact Checker).
+3.  MCP Tool Call: The Fact Checker determines it needs database metrics to verify a hypothesis. It formats a JSON request to call the query_prometheus MCP Tool.
+4.  Schema Validation & Execution: The FastMCP server validates the query structure. It executes the HTTP request against the Prometheus instance and streams the numerical telemetry back to the agent via SSE.
+5.  Consensus & Remediation: The Orchestrator compiles the validated evidence, structures a consensus-driven technical runbook, and evaluates the final remediation commands through the defensive shell.

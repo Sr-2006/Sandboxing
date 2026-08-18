@@ -1,6 +1,7 @@
 stages:
   - lint
   - test-python
+  - contract
   - test-java
   - integration
   - validate
@@ -47,6 +48,26 @@ test-python:
       junit: report.xml
     paths:
       - report.xml
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# Contract gate: the cross-phase interface (phase1_schema.py +
+# frontend_data/unified_master_dataset.json) must stay valid for EVERY branch.
+# A phase branch cannot merge to main while this job is red.
+contract:
+  stage: contract
+  image: python:3.11-slim
+  before_script:
+    - pip install --no-cache-dir -r requirements.txt
+  script:
+    - pytest -v -q tests/test_schema_contract.py tests/test_schema.py
+    - python validate_10.py --static
+  artifacts:
+    when: always
+    paths:
+      - validation_report.json
     expire_in: 7 days
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"

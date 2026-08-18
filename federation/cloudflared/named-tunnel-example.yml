@@ -1,0 +1,27 @@
+# ==============================================================================
+# Cloudflare NAMED tunnel config (stable hostname — requires a free Cloudflare
+# account + a domain whose DNS is managed by Cloudflare).
+#
+# One-time setup (on the laptop that owns the service):
+#   cloudflared tunnel login
+#   cloudflared tunnel create phase2-chroma          # prints <TUNNEL_ID>
+#   cloudflared tunnel route dns phase2-chroma chroma.yourdomain.com
+#
+# Then replace the two <PLACEHOLDERS> below and run:
+#   cloudflared tunnel --config federation\cloudflared\named-tunnel-example.yml run phase2-chroma
+# ==============================================================================
+
+tunnel: <TUNNEL_ID>
+credentials-file: C:\Users\<YOUR_WINDOWS_USER>\.cloudflared\<TUNNEL_ID>.json
+
+ingress:
+  # Phase 2 example: ChromaDB on local port 8000
+  - hostname: chroma.yourdomain.com
+    service: http://localhost:8000
+
+  # Add more hostnames on the SAME laptop if it hosts several services:
+  # - hostname: mcp.yourdomain.com
+  #   service: http://localhost:8001
+
+  # Required catch-all rule
+  - service: http_status:404

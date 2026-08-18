@@ -41,7 +41,9 @@ def test_process_phase1_incidents_creates_miner_after_reset_check(tmp_path, monk
     with open(events_file, "w") as f:
         f.write("[]")
 
-    monkeypatch.setattr("utils.project_path", lambda *parts: str(tmp_path / os.path.join(*parts)))
+    # phase1_processor binds project_path into its own namespace via
+    # `from utils import project_path`, so patch it there (not on utils).
+    monkeypatch.setattr(phase1_processor, "project_path", lambda *parts: str(tmp_path / os.path.join(*parts)))
 
     phase1_processor.process_phase1_incidents(reset_drain=True)
 

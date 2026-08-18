@@ -1,0 +1,121 @@
+# Auto-SRE Platform: Complete Project Context & Architecture
+
+## 1. Executive Summary
+The Auto-SRE Platform (developed for the Smart Horizon Hackathon) is an AI-driven IT operations resilience and incident intelligence engine. It is designed to shift enterprise IT environments from reactive firefighting to proactive, automated root cause analysis (RCA) and remediation. By continuously learning from logs, metrics, events, and past incidents, the platform predicts failures, isolates root causes, and recommends corrective actions while reducing alert fatigue.
+
+---
+
+## 2. Infrastructure & Application Architecture
+The system operates on an event-driven, microservices-based architecture built for high throughput and robust observability.
+
+*   **Microservices (Java/Spring Boot 3.2.x):**
+    *   **API Gateway:** Edge routing, rate limiting, and failure injection filtering.
+    *   **Auth Service:** User registration and JWT coordination.
+    *   **Order & Payment Services:** Core business logic and transaction simulation.
+*   **Data & Message Broker Layer:**
+    *   **PostgreSQL 16:** Relational storage for isolated service schemas.
+    *   **Redis 7:** Distributed key-value caching.
+    *   **RabbitMQ 3:** Event message broker for inter-service communication.
+*   **Observability Stack:**
+    *   **OpenTelemetry Collector:** Aggregates span data via OTLP/gRPC.
+    *   **Jaeger:** Distributed tracing storage and query UI.
+    *   **Prometheus:** Metric aggregation from `/actuator/prometheus` endpoints.
+    *   **Grafana:** Dashboard analytics interface.
+
+---
+
+## 3. Implementation Phases
+
+### Phase 1: Telemetry Ingestion, Clustering & Scoring (Complete)
+Phase 1 acts as the foundational sensory layer, processing unstructured telemetry into a mathematically scored ML dataset.
+*   **Continuous Telemetry (`continuous_telemetry.py`):** Asynchronously polls the Docker engine to extract container states, CPU/Memory stats, and stdout/stderr logs.
+*   **File Sync & Health Analytics (`frontend_data_sync.py`):** Utilizes `atomic_write` mechanisms to handle OS file locks. Dynamically calculates a system health score (baseline 100) penalized by degraded containers and resource exhaustion.
+*   **Log Parsing (`phase1_processor.py`):** Implements the **Drain3** algorithm to group unstructured logs into manageable failure modes. It dynamically masks variables (IPs, HEX, UUIDs) and creates a composite isolation key (`container_name_cluster_id`).
+*   **Priority Scoring:** Incidents are prioritized using logarithmic velocity scaling to prevent high-frequency warnings from drowning out critical crashes:
+    $$\text{Priority Score} = (\text{Base Severity Weight} \times \log_{10}(\text{Occurrence Count} + 1)) + \text{State Penalty}$$
+*   **ML Dataset Packaging (`package_ml_dataset.py`):** Merges log templates, container topologies, tracing IDs, and time-series metrics into a unified `unified_master_dataset.json`.
+
+### Phase 2: Fingerprinting & Contextual Memory (In Progress)
+Phase 2 provides the system with historical memory to instantly recognize recurring outages.
+*   **Deterministic Memory (SHA-256):** Hashes the service name, severity, and log template to create an O(1) lookup key for exact match identification.
+*   **Semantic Memory (ChromaDB):** Converts incident payloads into dense vectors using embedding models (e.g., `all-MiniLM-L6-v2`) to find conceptually similar past incidents using cosine similarity.
+*   **Context Adapters:** Dynamically parses `docker-compose.yml` for real-time topology mapping and formats data into a strict LLM prompt schema.
+
+### Phase 3: Multi-Agent Debate & MCP Integration (Architecture Defined)
+Phase 3 orchestrates AI agents to analyze Phase 1 and 2 data to generate remediation plans.
+*   **Universal Middleware (Model Context Protocol):** Connects AI agents to the foundational observability infrastructure, providing a strictly typed protocol for LLMs to request context and execute commands[cite: 1].
+*   **AI Agents:** Features a Multi-Agent RCA engine with an Optimist, Critic, Fact Checker, and an Orchestrator powered by a local `qwen2.5:3b` model[cite: 1].
+*   **FastMCP Servers:** Lightweight Python processes that expose underlying systems via Server-Sent Events (SSE), ensuring long-running diagnostic traces do not block the AI's processing loop[cite: 1].
+*   **Resources & Tools:** Core infrastructure data is exposed as read-only endpoints, while MCP Tools allow dynamic actions like executing PromQL queries or Docker SDK commands[cite: 1].
+
+### Phase 4: Three-Layer Hybrid Defensive Shell (Security)
+Prevents AI hallucinations from executing destructive commands on the infrastructure.
+*   **Pydantic Schema Enforcement:** Every MCP Tool requires a strict Pydantic model; malformed inputs trigger structured correction prompts rather than pipeline crashes[cite: 1].
+*   **Semantic Veto Integration:** Execution commands are evaluated against a `FORBIDDEN_CENTROIDS` matrix. Cosine similarity hits >= 0.82 trigger an instant veto[cite: 1].
+*   **Tiered Fallback Routing:** Intercepted vetoes cap the Orchestrator's confidence at 64% and route the action to a `TIER_2_SHADOW_SANDBOX` for human-in-the-loop verification[cite: 1].
+*   **Hazard Metadata Flagging:** Active scanning for destructive lures dynamically sets a `telemetry_hazard_detected` flag within the agent's context window[cite: 1].
+
+---
+
+## 4. Target LLM Payload Schema
+The collective output of the telemetry engine formatted for Phase 3 Multi-Agent injection:
+
+```json
+{
+  "system_context": {
+    "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
+    "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
+    "current_health_score": 70,
+    "active_warnings": 4
+  },
+  "incident_event": {
+    "incident_id": "api-gateway_2",
+    "target_service": "api-gateway",
+    "priority_score": 79.65,
+    "severity": "CRITICAL",
+    "occurrence_count": 97
+  },
+  "infrastructure_topology": {
+    "role": "edge-routing-and-rate-limiting",
+    "downstream_dependencies": [
+      "auth-service",
+      "order-service",
+      "payment-service",
+      "otel-collector"
+    ],
+    "exposed_ports": ["8080:8080"]
+  },
+  "service_health_status": {
+    "docker_status": "running",
+    "health_check": "healthy",
+    "dependency_states": {
+      "otel-collector": {
+        "status": "exited",
+        "health": "unhealthy"
+      }
+    }
+  },
+  "telemetry_evidence": {
+    "log_cluster_template": "<NUM>-<NUM>-<NUM>T... i.o.exporter.internal.http.HttpExporter : Failed to export spans. Connection reset",
+    "log_samples": [
+      {
+        "timestamp": "2026-08-08T14:09:50.797",
+        "level": "ERROR",
+        "content": "java.net.SocketException: Connection reset...",
+        "trace_id": "a1b2c3d4e5f6",
+        "span_id": "b1c2d3e4"
+      }
+    ],
+    "metrics_snapshot": [
+      {
+        "timestamp": "2026-08-08T14:41:49.192",
+        "cpu_percent": 16.28,
+        "memory_usage_bytes": 299728896,
+        "memory_usage_percent": 3.59
+      }
+    ]
+  },
+  "injected_chaos_context": {
+    "active_infrastructure_mutations": "Infrastructure orchestrator triggered a 30-second pause on dependency."
+  }
+}

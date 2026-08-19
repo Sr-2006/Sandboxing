@@ -1,0 +1,342 @@
+[
+  {
+    "event_id": "00573b3f-fd1e-42ff-a180-d7c6dec71a90",
+    "scenario_id": "63481393-8ab8-4be2-a997-ab0cedb7061d",
+    "fault_name": "http_throw",
+    "target": "api-gateway",
+    "start_ts": "2026-08-18T01:20:26.000Z",
+    "end_ts": "2026-08-18T01:21:11.000Z",
+    "params": {
+      "type": "null-pointer"
+    },
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "7e987b78-1655-4146-8087-77f0e08ca099",
+    "scenario_id": "08d9daef-5dff-45c5-b588-38eef05c2ff4",
+    "fault_name": "rabbitmq_backlog",
+    "target": "rabbitmq",
+    "start_ts": "2026-08-18T01:24:26.000Z",
+    "end_ts": "2026-08-18T01:25:11.000Z",
+    "params": {
+      "messages": 1000
+    },
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "271dc07b-224d-42b5-ba5b-b5fd3425ebf2",
+    "scenario_id": "239843ba-7c31-4724-ae35-524e97772d94",
+    "fault_name": "http_slow",
+    "target": "auth-service",
+    "start_ts": "2026-08-18T01:28:26.000Z",
+    "end_ts": "2026-08-18T01:29:26.000Z",
+    "params": {
+      "delayMs": 5000
+    },
+    "duration_s": 60.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "0ab9dd8b-3b34-47d8-a8b5-3c57eb8196a7",
+    "scenario_id": "c071164c-077e-4f65-93c0-cbeff7851bbe",
+    "fault_name": "pause_container",
+    "target": "postgres-db",
+    "start_ts": "2026-08-18T01:33:26.000Z",
+    "end_ts": "2026-08-18T01:34:06.000Z",
+    "params": {},
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "80d078d5-1c0f-4a79-a07c-c52275d78e7c",
+    "scenario_id": "ff403fc2-e1ed-46de-bf14-745b60efeb71",
+    "fault_name": "http_throw",
+    "target": "order-service",
+    "start_ts": "2026-08-18T01:38:26.000Z",
+    "end_ts": "2026-08-18T01:39:11.000Z",
+    "params": {
+      "type": "sql-timeout"
+    },
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "d851d825-7b7d-4827-adb8-eddeaf99931e",
+    "scenario_id": "d8c68a27-4c45-401f-986f-45179d45aef8",
+    "fault_name": "kill_container",
+    "target": "auth-service",
+    "start_ts": "2026-08-18T01:43:26.000Z",
+    "end_ts": "2026-08-18T01:44:01.000Z",
+    "params": {},
+    "duration_s": 35.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "a5be560b-07c6-48ce-8b11-35b1c27bf1bf",
+    "scenario_id": "9da436e8-096f-4bdc-bf45-7d0eb5f45ab2",
+    "fault_name": "http_exhaust_pool",
+    "target": "payment-service",
+    "start_ts": "2026-08-18T01:47:26.000Z",
+    "end_ts": "2026-08-18T01:48:11.000Z",
+    "params": {},
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "75db1913-57ff-4da9-a274-d6e04ef1dd44",
+    "scenario_id": "af6227f8-9c69-45ff-9d90-e01fb24d6b25",
+    "fault_name": "network_latency",
+    "target": "redis",
+    "start_ts": "2026-08-18T01:52:26.000Z",
+    "end_ts": "2026-08-18T01:53:16.000Z",
+    "params": {
+      "latency_ms": 200
+    },
+    "duration_s": 50.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "6477b0a8-a4f7-40f9-9da2-7d1e0a4eb926",
+    "scenario_id": "183a75d7-5a07-4d05-bf0d-975479220712",
+    "fault_name": "http_memory_leak",
+    "target": "api-gateway",
+    "start_ts": "2026-08-18T01:56:26.000Z",
+    "end_ts": "2026-08-18T01:57:56.000Z",
+    "params": {
+      "mb": 150
+    },
+    "duration_s": 90.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "74dc1b8b-9139-413e-8861-b5ee335d1d91",
+    "scenario_id": "80d530fb-0610-4251-a4c3-1d69ed05069d",
+    "fault_name": "http_5xx_injection",
+    "target": "api-gateway",
+    "start_ts": "2026-08-18T02:02:26.000Z",
+    "end_ts": "2026-08-18T02:03:06.000Z",
+    "params": {
+      "codes": [
+        502,
+        503,
+        504
+      ]
+    },
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "7064bf86-d7f0-47ad-b37f-a69d18e08338",
+    "scenario_id": "2abb9042-ce65-408f-a5e6-202ea54f4e8e",
+    "fault_name": "http_deadlock",
+    "target": "order-service",
+    "start_ts": "2026-08-18T02:06:26.000Z",
+    "end_ts": "2026-08-18T02:07:41.000Z",
+    "params": {},
+    "duration_s": 75.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "6d20162c-82bd-4bed-8d79-58b454e6308e",
+    "scenario_id": "c13d88d9-c785-4d54-8a04-43702e1fbef7",
+    "fault_name": "pause_container",
+    "target": "redis",
+    "start_ts": "2026-08-18T02:11:26.000Z",
+    "end_ts": "2026-08-18T02:12:06.000Z",
+    "params": {},
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "ca875292-7f26-44f5-a98d-e9c29f51eb38",
+    "scenario_id": "154b7e5b-243f-4025-a96f-4a6d458b4b30",
+    "fault_name": "auth_token_faults",
+    "target": "auth-service",
+    "start_ts": "2026-08-18T02:15:26.000Z",
+    "end_ts": "2026-08-18T02:16:06.000Z",
+    "params": {
+      "types": [
+        "expired",
+        "bad-signature"
+      ]
+    },
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "c3cd6509-5522-49bd-b12e-26f454d0d499",
+    "scenario_id": "efed0685-728e-447f-9b78-d33bd694b32d",
+    "fault_name": "cpu_throttle",
+    "target": "api-gateway",
+    "start_ts": "2026-08-18T02:19:26.000Z",
+    "end_ts": "2026-08-18T02:20:26.000Z",
+    "params": {
+      "cpu_quota": 10000,
+      "cpu_period": 100000
+    },
+    "duration_s": 60.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "5c0a1b49-19ff-4b5f-8826-779c58053af5",
+    "scenario_id": "517e5416-3888-4956-a98e-89a08949db6d",
+    "fault_name": "db_deadlock",
+    "target": "postgres-db",
+    "start_ts": "2026-08-18T02:23:26.000Z",
+    "end_ts": "2026-08-18T02:24:01.000Z",
+    "params": {},
+    "duration_s": 35.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "1c127e10-53e4-40af-b061-7c0cf3fd3fb7",
+    "scenario_id": "8b938393-decd-4296-a168-df71f04116f2",
+    "fault_name": "http_sql_lock",
+    "target": "payment-service",
+    "start_ts": "2026-08-18T02:27:26.000Z",
+    "end_ts": "2026-08-18T02:28:06.000Z",
+    "params": {},
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "6d910593-2e76-4858-942b-c9ec53505d54",
+    "scenario_id": "ef723d29-98a3-48d6-b3bc-f3e8b0248831",
+    "fault_name": "otel_export_fault",
+    "target": "otel-collector",
+    "start_ts": "2026-08-18T02:31:26.000Z",
+    "end_ts": "2026-08-18T02:32:06.000Z",
+    "params": {},
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "7a78dc0b-388c-4c09-bff9-4c58d937a5b1",
+    "scenario_id": "cf7a35e2-b53a-4a78-981c-b8821a15fb57",
+    "fault_name": "memory_limit",
+    "target": "order-service",
+    "start_ts": "2026-08-18T02:35:26.000Z",
+    "end_ts": "2026-08-18T02:36:26.000Z",
+    "params": {
+      "memory": "384m"
+    },
+    "duration_s": 60.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "7056b0b5-bf37-46dc-aea3-8e3e53749871",
+    "scenario_id": "1c7f8217-d3ea-42cb-ad35-f38c286a0e0c",
+    "fault_name": "restart_container",
+    "target": "rabbitmq",
+    "start_ts": "2026-08-18T02:39:26.000Z",
+    "end_ts": "2026-08-18T02:39:56.000Z",
+    "params": {},
+    "duration_s": 30.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "d946e483-d730-4274-ad55-b586047fca07",
+    "scenario_id": "2e082047-42a5-49aa-acbb-5ec3093c48e1",
+    "fault_name": "http_throw",
+    "target": "order-service",
+    "start_ts": "2026-08-18T02:39:33.000Z",
+    "end_ts": "2026-08-18T02:40:18.000Z",
+    "params": {
+      "type": "sql-timeout"
+    },
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "bf209f91-c8ca-4bd7-b914-617bd5ad6020",
+    "scenario_id": "7f31b4de-4c3e-4e2f-860a-5b7c7f971aba",
+    "fault_name": "http_throw",
+    "target": "order-service",
+    "start_ts": "2026-08-18T02:42:26.000Z",
+    "end_ts": "2026-08-18T02:43:11.000Z",
+    "params": {
+      "type": "connection-reset"
+    },
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "b922d1ad-3967-4f5e-95c1-75d97a26c728",
+    "scenario_id": "b73c89d4-5449-4b42-b3c2-7c9f80d7b510",
+    "fault_name": "rabbitmq_backlog",
+    "target": "rabbitmq",
+    "start_ts": "2026-08-18T02:42:33.000Z",
+    "end_ts": "2026-08-18T02:43:18.000Z",
+    "params": {
+      "messages": 1000
+    },
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "cce7fb94-2691-48ba-b5eb-1261606ae55f",
+    "scenario_id": "beaf2939-d146-46d2-9d4b-75057896c209",
+    "fault_name": "memory_limit",
+    "target": "payment-service",
+    "start_ts": "2026-08-18T02:45:26.000Z",
+    "end_ts": "2026-08-18T02:47:26.000Z",
+    "params": {
+      "memory": "384m"
+    },
+    "duration_s": 120.0,
+    "status": "injected"
+  },
+  {
+    "event_id": "87a0430f-fa63-4973-a17d-9dcfc5ae7ca3",
+    "scenario_id": "4b7e8843-2338-4062-835b-21bc0a2ca47d",
+    "fault_name": "auth_token_faults",
+    "target": "auth-service",
+    "start_ts": "2026-08-18T02:45:33.000Z",
+    "end_ts": "2026-08-18T02:46:13.000Z",
+    "params": {
+      "types": [
+        "expired",
+        "bad-signature"
+      ]
+    },
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "cbe1a13e-923f-4a15-b4f9-13ba3ccc67b5",
+    "scenario_id": "f8437dc4-6fcd-4f29-9975-35303dff90fb",
+    "fault_name": "pause_container",
+    "target": "otel-collector",
+    "start_ts": "2026-08-18T02:46:26.000Z",
+    "end_ts": "2026-08-18T02:47:06.000Z",
+    "params": {},
+    "duration_s": 40.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "16e4c13d-be64-41e5-83bc-32fa0de0f67a",
+    "scenario_id": "fbdbb011-378b-4d1a-9ba6-643b385e7b82",
+    "fault_name": "http_exhaust_pool",
+    "target": "payment-service",
+    "start_ts": "2026-08-18T02:48:33.000Z",
+    "end_ts": "2026-08-18T02:49:18.000Z",
+    "params": {},
+    "duration_s": 45.0,
+    "status": "recovered"
+  },
+  {
+    "event_id": "e7267d2e-d001-4aee-a9c1-9d7526cdee3e",
+    "scenario_id": "54e29217-1a03-487c-8ffc-8bbad13301d6",
+    "fault_name": "memory_limit",
+    "target": "payment-service",
+    "start_ts": "2026-08-18T02:50:33.000Z",
+    "end_ts": "2026-08-18T02:52:33.000Z",
+    "params": {
+      "memory": "384m"
+    },
+    "duration_s": 120.0,
+    "status": "injected"
+  }
+]

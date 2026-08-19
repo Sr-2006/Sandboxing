@@ -1,0 +1,47 @@
+# ==============================================================================
+# FINAL cross-network tunnel config (see ARCHITECTURE.md §3).
+#
+# One file per laptop — keep ONLY the ingress block for the laptop you are on,
+# delete the others. Replace <TUNNEL_ID> and <YOUR_WINDOWS_USER>.
+#
+# One-time (on the owning laptop):
+#   cloudflared tunnel login
+#   cloudflared tunnel create phase1-net        # (or phase2-net / phase3-net / phase4-net)
+#   cloudflared tunnel route dns phase1-net phase1.yourdomain.com
+#   cloudflared tunnel route dns phase1-net rabbit.yourdomain.com
+#
+# Run:
+#   cloudflared tunnel --config federation\cloudflared\final-tunnels.yml run
+# ==============================================================================
+
+tunnel: <TUNNEL_ID>
+credentials-file: C:\Users\<YOUR_WINDOWS_USER>\.cloudflared\<TUNNEL_ID>.json
+
+ingress:
+
+  # ---------------- LAPTOP A (Phase 1 + shared RabbitMQ) ----------------
+  - hostname: phase1.yourdomain.com
+    service: http://localhost:8090          # federation/serve_dataset.py
+  - hostname: rabbit.yourdomain.com
+    service: tcp://localhost:5672           # AMQP bus; teammates relay with
+                                            # `cloudflared access tcp` (ARCHITECTURE.md §3.3)
+
+  # ---------------- LAPTOP B (Phase 2) ----------------
+  # - hostname: phase2.yourdomain.com
+  #   service: http://localhost:8000        # chroma run
+
+  # ---------------- LAPTOP C (Phase 3) ----------------
+  # - hostname: phase3.yourdomain.com
+  #   service: http://localhost:8001        # MCP (Streamable HTTP / SSE)
+  # NOTE: Ollama (:11434) is intentionally NOT exposed — debate stays local.
+
+  # ---------------- LAPTOP D (Phase 4) ----------------
+  # - hostname: phase4.yourdomain.com
+  #   service: http://localhost:8002        # veto / safety gateway
+
+  # ---------------- DEMO DAY (assembly host only) ----------------
+  # - hostname: demo.yourdomain.com
+  #   service: http://localhost:3000        # judge-facing frontend; NO Access policy
+
+  # Required catch-all rule
+  - service: http_status:404

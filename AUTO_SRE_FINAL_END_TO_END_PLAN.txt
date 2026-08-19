@@ -1,0 +1,1467 @@
+AUTO-SRE PLATFORM — FINAL END-TO-END FEDERATION & DEMO PLAN
+================================================================
+Version: 2026-08-18
+Goal: Four developers can implement separate phases on separate laptops, integrate them with low latency and low coupling, and still have a one-laptop fail-safe demo path.
+
+================================================================
+1. FINAL ARCHITECTURAL DECISION
+================================================================
+
+Use THREE distinct mechanisms, each for the job it is best at:
+
+1) GitLab + CI
+   Purpose:
+   - Source control
+   - Phase ownership
+   - Contract/schema validation
+   - Integration testing
+   - Distribution of validated build/data artifacts
+
+2) Tailscale private mesh (or direct LAN when all laptops are on the same Wi-Fi)
+   Purpose:
+   - Live private laptop-to-laptop communication during development
+   - Stable machine identity / private addressing
+   - Avoid putting Cloudflare Quick Tunnels in every internal service call
+
+3) Cloudflare Tunnel
+   Purpose:
+   - Public judge/demo ingress only
+   - Expose the frontend/API gateway/dashboard when external access is required
+   - Do NOT use Quick Tunnels as the internal Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 backbone
+
+4) Single-laptop assembly mode
+   Purpose:
+   - The authoritative judging/demo runtime
+   - All services run on one integration laptop with Docker Compose/local networking
+   - Removes dependence on four laptops, four Wi-Fi links, or four tunnels during judging
+
+
+THE SYSTEM SHOULD HAVE TWO OPERATING MODES:
+
+A. FEDERATED DEVELOPMENT MODE
+   Laptop A -> Phase 1
+   Laptop B -> Phase 2
+   Laptop C -> Phase 3 + Ollama
+   Laptop D -> Phase 4
+
+   Communication:
+   LAN if available
+        else
+   Tailscale private mesh
+
+B. LOCAL ASSEMBLY / DEMO MODE
+   One integration laptop runs:
+   - Phase 1
+   - Phase 2
+   - ChromaDB
+   - Phase 3
+   - MCP
+   - Ollama
+   - Phase 4
+   - RabbitMQ
+   - PostgreSQL
+   - Redis
+   - Observability stack
+   - Frontend/API gateway
+
+   Communication:
+   Docker network / localhost only
+
+The local assembly mode is the judging path.
+The federated mode is the team-development and optional distributed-system demo path.
+
+
+================================================================
+2. WHY THE EXISTING DESIGN SHOULD BE REFINED, NOT REWRITTEN
+================================================================
+
+The existing repository already has several correct architectural choices:
+
+- Each laptop owns one phase.
+- GitLab is the integration backbone.
+- Phase branches merge only after CI/contract validation.
+- Phase 1 produces unified_master_dataset.json.
+- The validated merged dataset can move as a Git artifact.
+- Phase 2 therefore does not need Laptop A to remain online just to consume the packaged dataset.
+- Heavy workloads are not meant to be duplicated across all laptops.
+- The repository already contains a one-laptop "assembly host" demo procedure.
+
+Therefore:
+
+DO NOT replace the whole architecture.
+
+KEEP:
+- GitLab flow
+- CI contract gates
+- Phase ownership
+- Phase 1 artifact packaging
+- Single-machine assembly demo
+- ChromaDB
+- Ollama
+- RabbitMQ
+- Prometheus / Grafana / Jaeger / OpenTelemetry
+
+CHANGE:
+- Internal live communication strategy
+- Event transport for new live incidents
+- MCP transport
+- Failure handling
+- Service discovery
+- Demo/public ingress strategy
+
+
+================================================================
+3. NETWORK LAYER
+================================================================
+
+PREFERRED ORDER:
+
+1. Same Wi-Fi / same LAN:
+   Use direct private LAN connectivity where practical.
+
+2. Different networks:
+   Use Tailscale.
+
+3. Public external demo access:
+   Use ONE Cloudflare Tunnel into the frontend/API gateway.
+
+Internal calls should NOT normally traverse *.trycloudflare.com.
+
+
+FEDERATED NETWORK EXAMPLE
+
+Laptop A
+  hostname: phase1
+  Tailscale IP: 100.x.x.1
+
+Laptop B
+  hostname: phase2
+  Tailscale IP: 100.x.x.2
+
+Laptop C
+  hostname: phase3
+  Tailscale IP: 100.x.x.3
+
+Laptop D
+  hostname: phase4
+  Tailscale IP: 100.x.x.4
+
+
+Example internal endpoints:
+
+PHASE1_URL=http://phase1:8090
+PHASE2_URL=http://phase2:8000
+PHASE3_URL=http://phase3:8001
+PHASE4_URL=http://phase4:8002
+
+Do not commit random TryCloudflare hostnames as the normal internal service registry.
+
+
+WHY TAILSCALE:
+
+Tailscale attempts direct peer-to-peer connectivity between devices and falls back
+to relays when direct connectivity cannot be established.
+
+Useful diagnostics:
+
+tailscale status
+tailscale ping phase2
+tailscale ping phase3
+tailscale ping phase4
+
+During integration, record whether paths are:
+- direct
+- peer-relayed
+- DERP-relayed
+
+Direct paths are preferred.
+
+
+================================================================
+4. CLOUDFLARE'S FINAL ROLE
+================================================================
+
+Cloudflare becomes PUBLIC INGRESS, not INTERNAL SERVICE DISCOVERY.
+
+Recommended:
+
+Judge/browser
+      |
+      v
+Cloudflare Tunnel
+      |
+      v
+Frontend / API Gateway on assembly laptop
+      |
+      v
+Internal Docker services
+
+For the optional distributed demo:
+
+Judge/browser
+      |
+      v
+Cloudflare
+      |
+      v
+API Gateway
+      |
+      v
+Tailscale private federation
+
+
+WHY QUICK TUNNELS SHOULD NOT BE THE CORE BUS:
+
+Current Cloudflare documentation states that TryCloudflare Quick Tunnels:
+- are intended for testing/development
+- have no uptime SLA
+- use random trycloudflare.com hostnames
+- have a 200 in-flight request limit
+- do not support Server-Sent Events (SSE)
+
+So they are useful for temporary public exposure, but not ideal as the internal
+nervous system of a multi-stage distributed application.
+
+
+================================================================
+5. DATA PLANE: ARTIFACT PATH VS LIVE EVENT PATH
+================================================================
+
+This project should have TWO data paths.
+
+------------------------------------------------------------
+PATH A — BULK / VERSIONED DATA
+------------------------------------------------------------
+
+Use for:
+- unified_master_dataset.json
+- historical incident fixtures
+- test datasets
+- model evaluation inputs
+- schema snapshots
+- reproducible integration artifacts
+
+Flow:
+
+Phase 1
+   |
+   v
+unified_master_dataset.json
+   |
+   v
+GitLab / CI artifact
+   |
+   v
+Phase 2 / integration tests / assembly host
+
+This is already compatible with the repository's current philosophy.
+
+Do not convert this stable artifact workflow into unnecessary live RPC traffic.
+
+
+------------------------------------------------------------
+PATH B — LIVE INCIDENT EVENTS
+------------------------------------------------------------
+
+Use RabbitMQ for:
+- newly detected incidents
+- enrichment requests/results
+- RCA requests/results
+- proposed remediation actions
+- veto decisions
+- audit events
+
+RabbitMQ already exists in the stack, so use it rather than adding NATS/Kafka.
+
+
+================================================================
+6. RABBITMQ EVENT MODEL
+================================================================
+
+Recommended logical routing keys / queues:
+
+autosre.incident.raw
+autosre.incident.enriched
+autosre.rca.completed
+autosre.action.proposed
+autosre.action.allowed
+autosre.action.vetoed
+autosre.deadletter
+
+Optional:
+autosre.audit
+autosre.health
+
+
+Suggested event envelope:
+
+{
+  "event_id": "uuid",
+  "event_type": "incident.raw",
+  "incident_id": "api-gateway_2",
+  "correlation_id": "uuid",
+  "trace_id": "otel-trace-id",
+  "source_phase": "phase1",
+  "schema_version": "1.0",
+  "created_at": "ISO-8601 timestamp",
+  "payload": {}
+}
+
+
+REQUIREMENTS FOR EVERY EVENT:
+
+- event_id
+- event_type
+- incident_id when applicable
+- correlation_id
+- source_phase
+- schema_version
+- timestamp
+- payload
+
+Use acknowledgements.
+Use durable queues where persistence matters.
+Use retry/dead-letter routing rather than infinite retry loops.
+
+
+================================================================
+7. END-TO-END INCIDENT FLOW
+================================================================
+
+STEP 1 — TELEMETRY COLLECTION
+Laptop A / Phase 1
+
+Inputs:
+- Docker states
+- CPU
+- memory
+- stdout/stderr logs
+- traces
+- metrics
+- topology
+
+Pipeline:
+Docker telemetry
+   ->
+Drain3 parsing / clustering
+   ->
+normalization/masking
+   ->
+priority scoring
+   ->
+incident object
+
+
+STEP 2 — CLUSTERING / OCCURRENCE AGGREGATION
+Phase 1 already groups events by failure mode / cluster.
+
+Do not create a completely new dedup subsystem just because the architecture is
+being changed.
+
+The new live publisher should publish meaningful incident updates, not every raw
+log line.
+
+Example publication rule:
+
+Publish when:
+- a new incident cluster appears
+- severity changes
+- priority materially changes
+- service health materially changes
+- a recurrence threshold is crossed
+
+Do not publish for every identical log line.
+
+
+STEP 3 — PHASE 1 PUBLISHES INCIDENT
+
+Routing key:
+autosre.incident.raw
+
+Example:
+
+{
+  "event_id": "...",
+  "event_type": "incident.raw",
+  "incident_id": "api-gateway_2",
+  "correlation_id": "...",
+  "payload": {
+    "target_service": "api-gateway",
+    "severity": "CRITICAL",
+    "priority_score": 79.65,
+    "occurrence_count": 97,
+    "log_cluster_template": "...",
+    "trace_ids": ["..."]
+  }
+}
+
+
+STEP 4 — PHASE 2 CONSUMES INCIDENT
+Laptop B / Phase 2
+
+Phase 2 performs:
+
+A. deterministic lookup
+   SHA-256 fingerprint
+
+B. semantic lookup
+   ChromaDB similarity search
+
+C. topology/context enrichment
+
+D. historical memory lookup
+
+
+STEP 5 — PHASE 2 PUBLISHES ENRICHED INCIDENT
+
+Routing key:
+autosre.incident.enriched
+
+Example:
+
+{
+  "event_type": "incident.enriched",
+  "incident_id": "api-gateway_2",
+  "correlation_id": "...",
+  "payload": {
+    "fingerprint": "...",
+    "exact_match": false,
+    "similar_incidents": [...],
+    "topology": {...},
+    "telemetry_evidence": {...},
+    "historical_context": {...}
+  }
+}
+
+
+STEP 6 — PHASE 3 CONSUMES ENRICHED INCIDENT
+Laptop C / Phase 3
+
+Keep the expensive AI inner loop on the SAME laptop:
+
+Phase 3 orchestrator
+      |
+      +--> local MCP
+      |
+      +--> local Ollama
+      |
+      +--> local qwen2.5:3b
+
+Do not expose Ollama publicly.
+Do not route agent-to-Ollama requests through Cloudflare.
+Do not make another laptop call Ollama for each debate step.
+
+
+STEP 7 — MULTI-AGENT RCA
+
+Suggested pipeline:
+
+Incident context
+    |
+    +--> Optimist
+    |
+    +--> Critic
+    |
+    +--> Fact Checker
+    |
+    v
+Orchestrator synthesis
+    |
+    v
+RCA result + proposed action
+
+
+STEP 8 — MCP TRANSPORT
+
+For new remote MCP infrastructure, use Streamable HTTP rather than designing
+around legacy HTTP+SSE.
+
+The MCP specification replaced the old HTTP+SSE transport with Streamable HTTP.
+
+Recommended endpoint:
+
+POST /mcp
+GET  /mcp where required by the chosen SDK/spec behavior
+
+For local-only MCP components, stdio is also a strong option because it completely
+removes network overhead and external exposure.
+
+BEST LATENCY OPTION ON LAPTOP C:
+
+Agent process
+     |
+     v
+MCP via stdio
+     |
+     v
+local tools
+
+If a separate MCP process is required:
+
+Agent process
+     |
+     v
+http://127.0.0.1:8001/mcp
+     |
+     v
+Streamable HTTP
+
+
+STEP 9 — PHASE 3 PUBLISHES PROPOSED ACTION
+
+Routing key:
+autosre.action.proposed
+
+Do NOT transmit the entire historical database to Phase 4.
+
+Send only the decision-critical safety payload.
+
+Example:
+
+{
+  "event_type": "action.proposed",
+  "incident_id": "api-gateway_2",
+  "correlation_id": "...",
+  "payload": {
+    "action": "restart_container",
+    "target": "payment-service",
+    "arguments": {},
+    "confidence": 0.87,
+    "reason": "...",
+    "telemetry_hazard_detected": false
+  }
+}
+
+
+STEP 10 — PHASE 4 VALIDATES
+Laptop D / Phase 4
+
+Pipeline:
+
+Pydantic validation
+    |
+    v
+command/action normalization
+    |
+    v
+semantic veto
+    |
+    v
+policy rules
+    |
+    v
+ALLOW or VETO
+
+
+STEP 11 — FAIL CLOSED
+
+If Phase 4 is:
+
+- offline
+- timed out
+- unreachable
+- returns malformed output
+- crashes
+
+Then:
+
+DO NOT EXECUTE.
+
+The action becomes:
+
+RECOMMENDATION_ONLY
+
+or:
+
+TIER_2_SHADOW_SANDBOX / HUMAN REVIEW
+
+Never interpret "Phase 4 unavailable" as approval.
+
+
+STEP 12 — PHASE 4 RESULT
+
+ALLOW:
+
+autosre.action.allowed
+
+VETO:
+
+autosre.action.vetoed
+
+
+STEP 13 — EXECUTION
+
+Only actions with an explicit valid ALLOW decision may proceed to an execution
+adapter.
+
+Recommended:
+
+allowed event
+    |
+    v
+execution adapter
+    |
+    v
+Docker / infrastructure action
+    |
+    v
+audit log
+    |
+    v
+new telemetry
+    |
+    v
+Phase 1
+
+This closes the feedback loop.
+
+
+================================================================
+8. FULL CLOSED-LOOP ARCHITECTURE
+================================================================
+
+                    TELEMETRY
+                        |
+                        v
+                 +-------------+
+                 |   PHASE 1   |
+                 | Laptop A    |
+                 | Drain3      |
+                 | Scoring     |
+                 +------+------+
+                        |
+                incident.raw
+                        |
+                        v
+                 +-------------+
+                 | RabbitMQ    |
+                 +------+------+
+                        |
+                        v
+                 +-------------+
+                 |   PHASE 2   |
+                 | Laptop B    |
+                 | SHA-256     |
+                 | ChromaDB    |
+                 +------+------+
+                        |
+              incident.enriched
+                        |
+                        v
+                 +-------------+
+                 | RabbitMQ    |
+                 +------+------+
+                        |
+                        v
+                 +-------------+
+                 |   PHASE 3   |
+                 | Laptop C    |
+                 | MCP         |
+                 | Agents      |
+                 | Ollama      |
+                 +------+------+
+                        |
+               action.proposed
+                        |
+                        v
+                 +-------------+
+                 | RabbitMQ    |
+                 +------+------+
+                        |
+                        v
+                 +-------------+
+                 |   PHASE 4   |
+                 | Laptop D    |
+                 | Safety      |
+                 | Veto        |
+                 +------+------+
+                        |
+             +----------+----------+
+             |                     |
+           ALLOW                  VETO
+             |                     |
+             v                     v
+       execution adapter       sandbox/review
+             |
+             v
+       infrastructure
+             |
+             v
+         telemetry
+             |
+             +----------> Phase 1
+
+
+================================================================
+9. LATENCY STRATEGY
+================================================================
+
+Do not optimize the wrong thing.
+
+The slowest portion of this system is likely to be AI inference/debate, not a
+single transfer of the ~343 KB packaged dataset.
+
+Therefore optimize in this order:
+
+1. Reduce number of LLM calls.
+2. Cache repeated RCA results.
+3. Cache deterministic/semantic memory lookups.
+4. Avoid repeated embeddings for identical fingerprints.
+5. Keep Ollama and the agent loop local.
+6. Run independent context fetches concurrently.
+7. Keep live messages small.
+8. Reuse HTTP connections.
+9. Use direct LAN/Tailscale paths rather than public reverse-proxy hops.
+10. Optimize serialization/network payload size only after measuring it.
+
+
+================================================================
+10. CACHING
+================================================================
+
+PHASE 2 CACHE KEY:
+
+SHA256(
+  service
+  + normalized template
+  + severity
+)
+
+Cache:
+- fingerprint lookup
+- top semantic matches
+- topology snapshot where safe
+
+
+PHASE 3 CACHE KEY:
+
+SHA256(
+  incident fingerprint
+  + relevant context version
+  + agent/model version
+)
+
+Cache:
+- completed RCA
+- recommendation
+- debate summary
+
+Invalidate when:
+- topology changes
+- severity changes materially
+- telemetry evidence changes materially
+- model/prompt version changes
+
+
+PHASE 4 CACHE KEY:
+
+SHA256(
+  normalized action
+  + target
+  + arguments
+  + policy version
+)
+
+Cache:
+- deterministic veto decisions where safe
+
+Do not allow stale cache entries to bypass newly updated security rules.
+
+
+================================================================
+11. CONCURRENCY
+================================================================
+
+Fetch independent context in parallel.
+
+BAD:
+
+topology
+  then
+metrics
+  then
+logs
+  then
+history
+
+
+BETTER:
+
+            +--> topology ----+
+            +--> metrics -----+
+incident -->+--> logs --------+--> aggregate context
+            +--> history -----+
+            +--> traces ------+
+
+
+Use asyncio.gather or equivalent for independent I/O.
+
+This changes wait time from approximately:
+
+A + B + C + D
+
+toward:
+
+max(A, B, C, D)
+
+
+================================================================
+12. TIMEOUTS AND FAILURE POLICY
+================================================================
+
+Every inter-phase call/event workflow needs a finite deadline.
+
+Suggested starting values, to be tuned by measurement:
+
+Phase 2 enrichment:
+3 seconds soft target
+
+Phase 3 AI:
+model-dependent; set a hard application deadline
+
+Phase 4 veto:
+2 seconds target
+
+External public request:
+do not let it wait indefinitely for the whole pipeline
+
+
+DEGRADATION RULES:
+
+Phase 1 down:
+- no new telemetry
+- existing historical/demo data remains viewable
+
+Phase 2 down:
+- Phase 3 may perform telemetry-only RCA
+- mark memory_context_available=false
+
+Phase 3 down:
+- no AI remediation
+- incident remains open
+
+Phase 4 down:
+- NO execution
+- recommendation-only / human review
+
+RabbitMQ down:
+- producers spool/retry locally where practical
+- do not silently lose actions
+
+Ollama down:
+- Phase 3 marks inference unavailable
+- never fabricate RCA output
+
+
+================================================================
+13. RETRIES
+================================================================
+
+Use bounded exponential backoff.
+
+Example concept:
+
+attempt 1
+wait ~250 ms
+
+attempt 2
+wait ~500 ms
+
+attempt 3
+wait ~1 s
+
+then:
+dead-letter / degraded state
+
+DO NOT perform infinite retries.
+
+
+================================================================
+14. OBSERVABILITY
+================================================================
+
+Use the stack already present in the project.
+
+Every event should carry:
+
+- correlation_id
+- trace_id
+- incident_id
+- event_id
+
+Track spans such as:
+
+phase1.detect
+phase1.publish
+
+phase2.consume
+phase2.fingerprint
+phase2.chroma_query
+phase2.publish
+
+phase3.consume
+phase3.context_build
+phase3.optimist
+phase3.critic
+phase3.fact_checker
+phase3.orchestrator
+phase3.publish_action
+
+phase4.consume
+phase4.schema_check
+phase4.semantic_veto
+phase4.policy_check
+phase4.decision
+
+execution.apply
+
+
+Grafana dashboard should show:
+
+- incidents/min
+- queue depth
+- Phase 2 enrichment latency
+- Chroma query latency
+- Phase 3 model latency
+- total RCA latency
+- Phase 4 veto latency
+- allow count
+- veto count
+- dead-letter count
+- service health
+- end-to-end latency
+
+
+================================================================
+15. SERVICE HEALTH CONTRACT
+================================================================
+
+Every phase should expose:
+
+GET /health
+GET /ready
+GET /whoami
+
+
+Example /whoami:
+
+{
+  "phase": "phase2",
+  "service": "contextual-memory",
+  "owner": "developer-b",
+  "version": "git-sha",
+  "status": "ready"
+}
+
+
+/health:
+Process is alive.
+
+/ready:
+Dependencies required to accept work are available.
+
+/whoami:
+Confirms that the endpoint belongs to the expected laptop/phase.
+
+
+================================================================
+16. FEDERATION CHECKER
+================================================================
+
+Add:
+
+federation/check-federation.ps1
+
+It should test:
+
+- Tailscale/LAN reachability
+- /health
+- /ready
+- /whoami
+- RabbitMQ
+- ChromaDB
+- MCP
+- Ollama
+- Phase 4
+
+Output example:
+
+AUTO-SRE FEDERATION
+
+Phase 1    READY      11 ms
+Phase 2    READY      13 ms
+Phase 3    READY      17 ms
+Phase 4    READY      12 ms
+RabbitMQ   READY
+ChromaDB   READY
+Ollama     READY
+MCP        READY
+
+Tailscale A -> B: DIRECT
+Tailscale B -> C: DIRECT
+Tailscale C -> D: DIRECT
+
+Federation: HEALTHY
+
+
+================================================================
+17. SOURCE CONTROL / TEAM WORKFLOW
+================================================================
+
+Laptop A:
+phase1/*
+
+Laptop B:
+phase2/*
+
+Laptop C:
+phase3/*
+
+Laptop D:
+phase4/*
+
+Workflow:
+
+developer branch
+      |
+      v
+push
+      |
+      v
+Merge Request
+      |
+      v
+schema/contract tests
+      |
+      v
+integration test
+      |
+      v
+validation
+      |
+      v
+main
+
+
+RULE:
+
+Do not merge a phase if its contract breaks another phase.
+
+Keep the GitLab CI contract gate as the authoritative integration contract.
+
+
+================================================================
+18. SHARED SCHEMAS
+================================================================
+
+Create a shared package/directory, for example:
+
+autosre_contracts/
+
+or:
+
+shared/schemas/
+
+Contain:
+
+incident_raw.py
+incident_enriched.py
+rca_result.py
+proposed_action.py
+veto_decision.py
+health.py
+
+
+All phases import the SAME schema definitions.
+
+Do not copy/paste four slightly different Pydantic models.
+
+
+Version events:
+
+schema_version = "1.0"
+
+
+================================================================
+19. SECURITY
+================================================================
+
+Internal services:
+
+Do not expose:
+- Ollama
+- ChromaDB
+- RabbitMQ management
+- Docker API
+- internal MCP tools
+
+to the public Internet unless absolutely necessary.
+
+Prefer:
+- localhost
+- Docker network
+- Tailscale ACLs
+
+Cloudflare should normally expose only:
+- frontend
+- API gateway
+- safe demo endpoints
+
+
+Phase 4 remains mandatory before action execution.
+
+
+================================================================
+20. LOCAL ASSEMBLY MODE — THE JUDGING PATH
+================================================================
+
+This is the most important operational rule:
+
+THE FINAL JUDGING DEMO MUST NOT REQUIRE FOUR LAPTOPS TO REMAIN ONLINE.
+
+
+Before demo day:
+
+1. Merge all approved phase branches.
+2. Pull main on the integration laptop.
+3. Run the full Docker Compose stack.
+4. Run dataset generation.
+5. Run static validation.
+6. Run integration tests.
+7. Run one full live incident -> RCA -> veto flow.
+8. Keep a validated sample incident ready as fallback.
+9. Expose only the judge-facing frontend/API gateway through Cloudflare if needed.
+
+
+Existing repository procedure already includes the core assembly-host flow:
+
+git checkout main
+git pull
+copy .env.example .env
+docker compose up -d --wait
+python simulate_full_telemetry.py --fresh
+python validate_10.py --static
+
+
+Formalize runtime mode:
+
+DEPLOY_MODE=local
+
+Local endpoints:
+
+PHASE1_URL=http://phase1:8090
+PHASE2_URL=http://phase2:8000
+PHASE3_URL=http://phase3:8001
+PHASE4_URL=http://phase4:8002
+RABBITMQ_HOST=rabbitmq
+
+
+In federated mode:
+
+DEPLOY_MODE=federated
+
+Use:
+LAN hostnames/IPs or Tailscale hostnames/IPs.
+
+
+================================================================
+21. DEMO FLOW
+================================================================
+
+The judging demo should tell one clean story.
+
+1. Show healthy microservices.
+2. Trigger a controlled fault.
+3. Phase 1 detects telemetry anomaly.
+4. Drain3 clusters the error.
+5. Priority score rises.
+6. An incident is published.
+7. Phase 2 identifies historical/similar incidents.
+8. Phase 3 builds RCA context.
+9. Multi-agent debate runs.
+10. Orchestrator proposes a remediation.
+11. Phase 4 evaluates it.
+12. Show one safe ALLOW case.
+13. Show one destructive VETO case.
+14. Show telemetry recovery.
+15. Show Grafana/Jaeger trace across the complete incident lifecycle.
+
+
+Key visual:
+
+FAULT
+  ->
+DETECTION
+  ->
+MEMORY
+  ->
+RCA
+  ->
+SAFETY
+  ->
+ACTION
+  ->
+RECOVERY
+
+
+================================================================
+22. FAILURE DEMO
+================================================================
+
+A strong bonus demo:
+
+Stop Phase 4.
+
+Then propose a remediation.
+
+Expected system behavior:
+
+PHASE 4 UNAVAILABLE
+        |
+        v
+EXECUTION BLOCKED
+        |
+        v
+RECOMMENDATION ONLY
+
+This proves the platform fails safely.
+
+
+================================================================
+23. IMPLEMENTATION ORDER
+================================================================
+
+Do this in the following order.
+
+PHASE A — KEEP CURRENT SYSTEM GREEN
+1. Preserve existing CI.
+2. Preserve existing local assembly host.
+3. Preserve existing dataset artifact pipeline.
+4. Ensure all phase contracts pass.
+
+PHASE B — NETWORK
+5. Install Tailscale on four laptops.
+6. Join one tailnet.
+7. Name machines phase1/phase2/phase3/phase4.
+8. Verify tailscale ping.
+9. Prefer direct paths.
+10. Remove Quick Tunnel URLs from the normal internal path.
+
+PHASE C — HEALTH
+11. Add /health.
+12. Add /ready.
+13. Add /whoami.
+14. Add federation checker.
+
+PHASE D — RABBITMQ
+15. Define shared event envelope.
+16. Define routing keys.
+17. Phase 1 publishes incident.raw.
+18. Phase 2 consumes raw and publishes enriched.
+19. Phase 3 consumes enriched and publishes proposed_action.
+20. Phase 4 consumes proposed_action and publishes allow/veto.
+21. Add dead-letter queue.
+
+PHASE E — MCP
+22. Keep Ollama local to Phase 3.
+23. Prefer MCP stdio for same-process/local tool servers where practical.
+24. Otherwise use Streamable HTTP.
+25. Stop designing new components around legacy HTTP+SSE.
+
+PHASE F — PERFORMANCE
+26. Add Phase 2 cache.
+27. Add RCA cache.
+28. Add safe veto cache.
+29. Parallelize independent context retrieval.
+30. Add latency metrics.
+31. Optimize based on measured bottlenecks.
+
+PHASE G — DEMO HARDENING
+32. Run all phases on one assembly laptop.
+33. Validate complete flow.
+34. Add Cloudflare only in front of judge-facing ingress.
+35. Test internet failure.
+36. Test Phase 4 failure.
+37. Test Ollama failure.
+38. Keep deterministic sample incident fallback.
+
+
+================================================================
+24. WHAT NOT TO BUILD BEFORE THE HACKATHON
+================================================================
+
+Skip unless everything else is already complete:
+
+- Headscale
+- self-hosted NetBird
+- Kubernetes
+- service mesh
+- Kafka
+- custom distributed consensus
+- multi-region deployment
+- complex circuit breaker framework
+- custom RPC framework
+- exposing every service through Cloudflare
+- separate Ollama instances on all laptops
+- elaborate dynamic service discovery system
+
+They add operational surface area without improving the central hackathon story.
+
+
+================================================================
+25. FINAL RECOMMENDED STACK
+================================================================
+
+SOURCE CONTROL / CI
+GitLab
+
+LIVE PRIVATE NETWORK
+LAN
+or
+Tailscale
+
+PUBLIC INGRESS
+Cloudflare Tunnel
+
+EVENT BUS
+RabbitMQ
+
+PHASE 1
+Python telemetry + Drain3 + scoring
+
+PHASE 2
+SHA-256 + ChromaDB
+
+PHASE 3
+MCP + multi-agent RCA + local Ollama qwen2.5:3b
+
+PHASE 4
+Pydantic + semantic veto + policy enforcement
+
+OBSERVABILITY
+OpenTelemetry
+Prometheus
+Grafana
+Jaeger
+
+FINAL DEMO
+One assembly laptop
+Docker Compose
+
+
+================================================================
+26. FINAL DESIGN IN ONE DIAGRAM
+================================================================
+
+                                  PUBLIC
+                                    |
+                                    v
+                         +---------------------+
+                         | Cloudflare Tunnel   |
+                         | public ingress only |
+                         +----------+----------+
+                                    |
+                                    v
+                         +---------------------+
+                         | Frontend/API Gateway|
+                         +----------+----------+
+                                    |
+              +---------------------+---------------------+
+              |                                           |
+              | LOCAL DEMO                                | FEDERATED DEV
+              v                                           v
+       Docker private network                     LAN / Tailscale mesh
+              |                                           |
+              +---------------------+---------------------+
+                                    |
+                                    v
+                           +----------------+
+                           |    Phase 1     |
+                           | telemetry      |
+                           | Drain3/scoring |
+                           +-------+--------+
+                                   |
+                           incident.raw
+                                   |
+                                   v
+                           +----------------+
+                           |   RabbitMQ     |
+                           +-------+--------+
+                                   |
+                                   v
+                           +----------------+
+                           |    Phase 2     |
+                           | SHA256/Chroma  |
+                           +-------+--------+
+                                   |
+                        incident.enriched
+                                   |
+                                   v
+                           +----------------+
+                           |    Phase 3     |
+                           | MCP + agents   |
+                           | local Ollama   |
+                           +-------+--------+
+                                   |
+                        action.proposed
+                                   |
+                                   v
+                           +----------------+
+                           |    Phase 4     |
+                           | safety / veto  |
+                           +---+--------+---+
+                               |        |
+                             ALLOW     VETO
+                               |        |
+                               v        v
+                           execute    sandbox/
+                               |      human review
+                               v
+                         infrastructure
+                               |
+                               v
+                           telemetry
+                               |
+                               +-------> Phase 1
+
+
+================================================================
+27. SINGLE SENTENCE ARCHITECTURE
+================================================================
+
+GitLab guarantees compatibility, RabbitMQ carries live incidents, LAN/Tailscale
+connects the developer laptops privately, Phase 3 keeps MCP and Ollama local,
+Phase 4 fails closed before execution, Cloudflare exposes only the public demo
+entrypoint, and the final judging runtime runs all services on one Docker Compose
+assembly laptop.
+
+
+================================================================
+28. OFFICIAL REFERENCES USED TO VERIFY CURRENT NETWORK/PROTOCOL CHOICES
+================================================================
+
+Cloudflare Quick Tunnels:
+https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/
+
+Tailscale device connectivity:
+https://tailscale.com/docs/reference/device-connectivity
+
+Tailscale connection diagnostics:
+https://tailscale.com/docs/reference/troubleshooting/network-configuration/derp-routing
+
+Tailscale free plan information:
+https://tailscale.com/docs/reference/free-plans-discounts
+
+Model Context Protocol transports:
+https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+
+RabbitMQ Work Queues tutorial:
+https://www.rabbitmq.com/tutorials/tutorial-two-python
+
+RabbitMQ Publish/Subscribe tutorial:
+https://www.rabbitmq.com/tutorials/tutorial-three-python
+
+
+================================================================
+END
+================================================================

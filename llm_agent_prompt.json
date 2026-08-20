@@ -1,0 +1,35 @@
+{
+    "system_context": {
+        "objective": "Perform automated Multi-Agent Root Cause Analysis (RCA) and recommend corrective actions.",
+        "environment": "Dockerized Microservices (Java/Spring Boot, PostgreSQL, Redis, RabbitMQ, OpenTelemetry)",
+        "current_health_score": 70,
+        "active_warnings": 4,
+        "incident_fingerprint_sha256": "1443f18548a58ad701d2fed1821554cfc39e1f3beea2118aa75914f9cb1c5966"
+    },
+    "incident_event": {
+        "incident_id": null,
+        "target_service": "unknown",
+        "priority_score": null,
+        "severity": null,
+        "occurrence_count": null
+    },
+    "infrastructure_topology": {
+        "role": "microservice",
+        "downstream_dependencies": [],
+        "exposed_ports": []
+    },
+    "service_health_status": {
+        "docker_status": null,
+        "health_check": null,
+        "dependency_states": {}
+    },
+    "telemetry_evidence": {
+        "log_cluster_template": null,
+        "log_samples": [],
+        "metrics_snapshot": []
+    },
+    "injected_chaos_context": {
+        "active_infrastructure_mutations": "{\"event_id\": \"e7267d2e-d001-4aee-a9c1-9d7526cdee3e\", \"scenario_id\": \"54e29217-1a03-487c-8ffc-8bbad13301d6\", \"fault_name\": \"memory_limit\", \"target\": \"payment-service\", \"start_ts\": \"2026-08-18T02:50:33.000Z\", \"end_ts\": \"2026-08-18T02:52:33.000Z\", \"params\": {\"memory\": \"384m\"}, \"duration_s\": 120.0, \"status\": \"injected\"}"
+    },
+    "agent_instruction": "Analyze the provided telemetry evidence and dependency states. Determine the root cause of the failure in the unknown and output a remediation plan."
+}

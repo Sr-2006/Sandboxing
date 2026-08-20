@@ -5,9 +5,9 @@
 | Attribute | Details |
 | :--- | :--- |
 | **Project Name** | Smart Horizon Hackathon - V2 Microservices & Auto-SRE Platform |
-| **Last Modified Date** | August 17, 2026 |
-| **Current State** | Hardened platform with loopback-only ports, Redis password authentication, downstream internal-token authentication, fail-closed chaos configuration, durable atomic writes with `fsync`, persistent file locks, versioned Drain3 reset, watchdog-based chaos recovery, 61 unit/contract tests, and 28 static gates (37 total acceptance gates). |
-| **Repository State** | Dockerized microservices stack with end-to-end distributed telemetry and observability, OpenTelemetry MDC trace propagation, Logstash JSON logging, Grafana Loki log pipeline, Prometheus metrics (provisioned datasource + system-overview dashboard), Jaeger traces, 13-type chaos orchestration catalog (unified `CHAOS_EVENT_SCHEMA` ground truth), versioned Drain3 clustering (v2), dynamic priority score engine, and validated Pydantic v2 Unified Master Dataset with `DatasetMeta` lineage. |
+| **Last Modified Date** | August 20, 2026 |
+| **Current State** | Hardened platform with loopback-only ports, Redis password authentication, downstream internal-token authentication, fail-closed chaos configuration, durable atomic writes with `fsync`, persistent file locks, versioned Drain3 reset, watchdog-based chaos recovery, 61 unit/contract tests, and 28 static gates (37 total acceptance gates). Now includes Phase 2 Contextual Memory (ChromaDB) and Phase 3 Multi-Agent RCA Engine powered by FastMCP. |
+| **Repository State** | Dockerized microservices stack with end-to-end distributed telemetry and observability, OpenTelemetry MDC trace propagation, Logstash JSON logging, Grafana Loki log pipeline, Prometheus metrics (provisioned datasource + system-overview dashboard), Jaeger traces, 13-type chaos orchestration catalog (unified `CHAOS_EVENT_SCHEMA` ground truth), versioned Drain3 clustering (v2), dynamic priority score engine, validated Pydantic v2 Unified Master Dataset with `DatasetMeta` lineage, ChromaDB vector memory, and Model Context Protocol (MCP) servers. |
 
 ---
 
@@ -58,6 +58,10 @@ The Auto-SRE platform is an event-driven, containerized microservices platform b
   * **Prometheus:** Metrics time-series scraper (`127.0.0.1:9090`).
   * **Jaeger:** Distributed tracing visualization engine (`127.0.0.1:16686`).
   * **Grafana:** Centralized dashboard UI with provisioned Prometheus datasource and system overview dashboard (`127.0.0.1:3000`).
+* **AI & Contextual Memory Infrastructure:**
+  * **FastMCP Servers:** Lightweight Python servers exposing infrastructure data via Server-Sent Events (SSE) using the Model Context Protocol.
+  * **ChromaDB (`chroma_memory_db/`):** Phase 2 vector memory database fingerprinting log cluster templates and system context for semantic retrieval.
+  * **Multi-Agent Orchestrator:** Local `qwen2.5:3b` model via Ollama, acting as the MCP client to analyze incidents dynamically using Optimist, Critic, and Fact Checker agents.
 
 ---
 
@@ -141,3 +145,25 @@ The Auto-SRE platform is an event-driven, containerized microservices platform b
   7. `topology_consistent`: All incident target services mapped in topology graph.
   8. `dataset_fresh<24h`: Generated master dataset freshness window.
   9. `dataset_metadata_lineage`: Presence of `DatasetMeta` lineage metadata (`dataset_version`, `processor_version`, `git_sha`).
+
+---
+
+## 5. Phase 2 & 3: Multi-Agent RCA & Contextual Memory
+
+The platform utilizes a **Multi-Agent Root Cause Analysis (RCA) engine** powered by the Model Context Protocol (MCP) to standardize communication between foundational observability infrastructure and AI reasoning core.
+
+### A. MCP Integration & Architecture
+* **The MCP Host (Client):** The Multi-Agent Orchestrator powered by a local `qwen2.5:3b` model connects to the infrastructure asynchronously using the `mcp.client.sse` protocol.
+* **FastMCP Servers:** Lightweight Python processes (`fastmcp_server.py`) deployed alongside data silos, exposing systems via Server-Sent Events (SSE) to ensure non-blocking diagnostic traces.
+* **Resources & Tools:** Core infrastructure data is exposed as read-only endpoints (e.g., `processed_incidents.json`). Dynamic actions (e.g., PromQL queries, ChromaDB retrieval, Docker SDK commands) are exposed as MCP Tools.
+
+### B. Defensive Routing & Validation Shell
+* **Pydantic Schema Enforcement:** Every MCP Tool requires strict Pydantic models. Malformed JSON triggers ValidationError and a structured correction prompt to the agent.
+* **Semantic Veto Integration:** Execution commands are evaluated against a pre-computed `FORBIDDEN_CENTROIDS` matrix (e.g. `rm -rf`). A cosine similarity >= 0.82 triggers an instant veto.
+* **Tiered Fallback Routing:** Vetoes cap the Orchestrator's confidence score at 64% and route the action to a `TIER_2_SHADOW_SANDBOX` for human-in-the-loop verification.
+* **Hazard Metadata Flagging:** Payloads are scanned for destructive lures, dynamically setting a `telemetry_hazard_detected` flag.
+
+### C. ChromaDB Fingerprinting (Phase 2)
+* Embeds the Master Dataset using a `(target_service, log_cluster_template)` tuple as the vector embedding key.
+* `trace_id` is indexed as metadata for cross-span trace correlation.
+* Invalid incident entries with empty log templates are automatically filtered out.

@@ -36,3 +36,4 @@ frontend_data/health_warnings.log
 # Ignore Phase 2/3 and Python virtual environment directories
 venv/
 chroma_memory_db/
+*.exe

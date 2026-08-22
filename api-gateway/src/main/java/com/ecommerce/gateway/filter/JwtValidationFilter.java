@@ -27,6 +27,9 @@ public class JwtValidationFilter implements GlobalFilter, Ordered {
     @Value("${INTERNAL_SERVICE_TOKEN:${internal.service.token:}}")
     private String internalServiceToken;
 
+    @Value("${shadow.auth-bypass:false}")
+    private boolean shadowAuthBypass;
+
     public JwtValidationFilter(WebClient.Builder webClientBuilder) {
         this.webClientBuilder = webClientBuilder;
     }
@@ -37,6 +40,20 @@ public class JwtValidationFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        if (shadowAuthBypass) {
+            ServerHttpRequest request = exchange.getRequest();
+            String correlationId = request.getHeaders().getFirst("X-Correlation-ID");
+            if (correlationId == null || correlationId.isEmpty()) {
+                correlationId = UUID.randomUUID().toString();
+            }
+            ServerHttpRequest modified = request.mutate()
+                .header("X-Correlation-ID", correlationId)
+                .header("X-Shadow-Auth-Bypassed", "true")
+                .header("X-User-Id", "shadow-user")
+                .build();
+            return chain.filter(exchange.mutate().request(modified).build());
+        }
+
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getURI().getPath();
 

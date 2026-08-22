@@ -31,7 +31,7 @@ except Exception:
 CONTAINERS = ["api-gateway", "auth-service", "order-service", "payment-service", "postgres-db", "redis", "rabbitmq"]
 HTTP_SERVICES = ["api-gateway", "auth-service", "order-service", "payment-service"]
 
-# 13-type chaos orchestration catalog
+# 14-type chaos orchestration catalog
 FAULTS_CATALOG = [
     ("pause_container", "container", lambda: {}),
     ("restart_container", "container", lambda: {}),
@@ -39,6 +39,7 @@ FAULTS_CATALOG = [
     ("cpu_throttle", "container", lambda: {}),
     ("memory_limit", "container", lambda: {}),
     ("network_latency", "container", lambda: {"latency_ms": 200}),
+    ("network_partition", "container", lambda: {"duration_s": 30}),
     ("rabbitmq_backlog", "rabbitmq", lambda: {"messages": 1000}),
     ("http_slow", "http_service", lambda: {"delayMs": 5000}),
     ("http_throw", "http_service", lambda: {"type": random.choice(["null-pointer", "sql-timeout", "connection-reset"])}),
@@ -73,6 +74,16 @@ def select_and_run_scenario():
     except Exception as w_err:
         logger.warning(f"Watchdog pre-scenario reconciliation failed: {w_err}")
 
+    target_ns = os.environ.get("CHAOS_TARGET_NAMESPACE", "production")
+    if target_ns == "shadow":
+        containers_list = [f"shadow-{s}" for s in ["api-gateway", "auth-service", "order-service", "payment-service", "postgres-db", "redis", "rabbitmq"]]
+        http_list = [f"shadow-{s}" for s in ["api-gateway", "auth-service", "order-service", "payment-service"]]
+        rabbitmq_target = "shadow-rabbitmq"
+    else:
+        containers_list = CONTAINERS
+        http_list = HTTP_SERVICES
+        rabbitmq_target = "rabbitmq"
+
     scenario_id = str(uuid.uuid4())
     
     # Choose 2 or 3 distinct faults targeting different layers
@@ -83,7 +94,7 @@ def select_and_run_scenario():
     targets_used = set()
     duration = random.randint(30, 120)
     
-    logger.info(f"=== Starting Scenario {scenario_id} (Duration: {duration}s) ===")
+    logger.info(f"=== Starting Scenario {scenario_id} (Namespace: {target_ns}, Duration: {duration}s) ===")
     
     # Track original configs for recovery
     original_configs = {}
@@ -95,16 +106,16 @@ def select_and_run_scenario():
 
             target = None
             if target_type == "container":
-                available = [c for c in CONTAINERS if c not in targets_used]
+                available = [c for c in containers_list if c not in targets_used]
                 if available:
                     target = random.choice(available)
             elif target_type == "http_service":
-                available = [s for s in HTTP_SERVICES if s not in targets_used]
+                available = [s for s in http_list if s not in targets_used]
                 if available:
                     target = random.choice(available)
             elif target_type == "rabbitmq":
-                if "rabbitmq" not in targets_used:
-                    target = "rabbitmq"
+                if rabbitmq_target not in targets_used:
+                    target = rabbitmq_target
             
             if not target:
                 continue
@@ -165,8 +176,27 @@ if __name__ == "__main__":
     parser.add_argument("--interval", type=int, default=60, help="Interval between scenarios in seconds")
     parser.add_argument("--once", action="store_true", help="Run a single scenario and exit")
     parser.add_argument("--scenario", type=str, default="", help="Run named scenario e.g. smoke")
+    parser.add_argument("--sandbox", choices=["production", "shadow"], default="production", help="Target sandbox namespace for chaos experiments")
     args = parser.parse_args()
     
+    os.environ["CHAOS_TARGET_NAMESPACE"] = args.sandbox
+    if args.sandbox != "production":
+        from chaos_orchestrator import _append_audit_record
+        _append_audit_record("namespace_switch", previous_ns="production", new_ns=args.sandbox)
+
+    if args.sandbox == "shadow":
+        required_shadow = ["shadow-api-gateway", "shadow-auth-service", "shadow-order-service", "shadow-payment-service"]
+        if client:
+            try:
+                running = [c.name for c in client.containers.list()]
+                missing = [c for c in required_shadow if c not in running]
+                if missing:
+                    logger.error(f"Shadow sandbox not ready. Missing containers: {missing}")
+                    sys.exit(1)
+                logger.info("Shadow pre-flight check passed. All required shadow containers are running.")
+            except Exception as pre_err:
+                logger.warning(f"Could not perform shadow preflight check: {pre_err}")
+
     if args.once or args.scenario:
         select_and_run_scenario()
     else:
@@ -184,3 +214,4 @@ if __name__ == "__main__":
                 if SHUTDOWN_REQUESTED:
                     break
                 time.sleep(1)
+

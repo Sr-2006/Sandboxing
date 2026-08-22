@@ -10,6 +10,8 @@ services:
   postgres-db:
     image: postgres:16.2-alpine
     container_name: postgres-db
+    networks:
+      - prod-net
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=relational-database"
@@ -37,6 +39,8 @@ services:
   redis:
     image: redis:7.2.4-alpine
     container_name: redis
+    networks:
+      - prod-net
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"]
     labels:
       - "ara.topology.group=backend"
@@ -61,6 +65,8 @@ services:
   rabbitmq:
     image: rabbitmq:3.13.0-management-alpine
     container_name: rabbitmq
+    networks:
+      - prod-net
     labels:
       - "ara.topology.group=backend"
       - "ara.topology.role=message-broker"
@@ -86,6 +92,9 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.57.0
     container_name: jaeger
+    networks:
+      - prod-net
+      - shadow-net
     labels:
       - "ara.topology.role=observability-query"
     ports:
@@ -102,6 +111,8 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.102.0
     container_name: otel-collector
+    networks:
+      - prod-net
     labels:
       - "ara.topology.role=observability-ingest"
     command: ["--config=/etc/otel-collector-config.yaml"]
@@ -127,6 +138,9 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: prometheus
+    networks:
+      - prod-net
+      - shadow-net
     labels:
       - "ara.topology.role=observability-metrics"
     volumes:
@@ -143,6 +157,8 @@ services:
   grafana:
     image: grafana/grafana:11.1.0
     container_name: grafana
+    networks:
+      - prod-net
     labels:
       - "ara.topology.role=observability-viz"
     ports:
@@ -165,6 +181,8 @@ services:
     build:
       context: ./api-gateway
     container_name: api-gateway
+    networks:
+      - prod-net
     cap_add:
       - NET_ADMIN
     labels:
@@ -199,6 +217,8 @@ services:
     build:
       context: ./auth-service
     container_name: auth-service
+    networks:
+      - prod-net
     cap_add:
       - NET_ADMIN
     labels:
@@ -235,6 +255,8 @@ services:
     build:
       context: ./order-service
     container_name: order-service
+    networks:
+      - prod-net
     cap_add:
       - NET_ADMIN
     labels:
@@ -267,6 +289,8 @@ services:
     build:
       context: ./payment-service
     container_name: payment-service
+    networks:
+      - prod-net
     cap_add:
       - NET_ADMIN
     labels:
@@ -298,6 +322,8 @@ services:
   loki:
     image: grafana/loki:3.2.1
     container_name: loki
+    networks:
+      - prod-net
     labels:
       - "ara.topology.role=observability-logging"
     ports:
@@ -317,7 +343,15 @@ services:
       timeout: 5s
       retries: 5
 
+networks:
+  prod-net:
+    driver: bridge
+    internal: false
+  shadow-net:
+    driver: bridge
+    internal: false
+
 volumes:
   postgres_data:
   redis_data:
-  rabbitmq_data:
+  rabbitmq_data:

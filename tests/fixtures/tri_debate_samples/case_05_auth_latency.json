@@ -1,0 +1,11 @@
+{
+  "incident_id": "case_05_auth_latency",
+  "problem": "Target Service: `auth-service` - High latency on token validation.",
+  "confidence": 75,
+  "consensus_quality": "MEDIUM",
+  "recommended_tier": "TIER_2_SHADOW_SANDBOX",
+  "safety_violation": false,
+  "action_commands": [
+    "Restart service to clear memory leak"
+  ]
+}

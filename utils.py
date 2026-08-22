@@ -247,3 +247,14 @@ def migrate_legacy_chaos_history(filepath: Optional[str] = None) -> int:
         if legacy_count > 0:
             atomic_write_json(filepath, migrated)
         return legacy_count
+
+
+def is_shadow_container(container_name: str) -> bool:
+    """Check if a container belongs to the shadow sandbox namespace."""
+    return container_name.startswith("shadow-")
+
+
+def get_sandbox_label(container_name: str) -> str:
+    """Return the sandbox environment label ('shadow' or 'production') for a container."""
+    return "shadow" if is_shadow_container(container_name) else "production"
+

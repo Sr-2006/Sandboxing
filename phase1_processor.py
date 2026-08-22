@@ -20,11 +20,28 @@ from utils import (
 )
 from package_ml_dataset import parse_docker_compose_topology
 
+import uuid
+
 logger = get_logger("phase1_processor")
+
+SHADOW_RUN_ID = os.environ.get("SHADOW_RUN_ID", str(uuid.uuid4())[:8])
 
 DRAIN3_STATE_FILE = project_path("frontend_data", "drain3_state.bin")
 VERSION_HEADER_FILE = project_path("frontend_data", "drain3_version.meta")
 PROCESSOR_VERSION = 2
+
+
+def get_output_path(filename: str, sandbox: bool = False) -> str:
+    if not sandbox:
+        if filename == "drain3_state.bin":
+            return DRAIN3_STATE_FILE
+        if filename == "drain3_version.meta":
+            return VERSION_HEADER_FILE
+        return project_path("frontend_data", filename)
+    prefix = f"shadow_{SHADOW_RUN_ID}_"
+    return project_path("frontend_data", f"{prefix}{filename}")
+
+
 
 # ==========================================
 # 1. DRAIN3 CONFIGURATION & ADVANCED MASKING
@@ -247,50 +264,60 @@ def assign_severity_bucket(priority_score: float) -> str:
         return "MEDIUM"
     return "LOW"
 
-def check_drain_version_and_reset_if_needed(force_reset: bool = False):
+def check_drain_version_and_reset_if_needed(force_reset: bool = False, sandbox: bool = False):
+    drain3_state_file = get_output_path("drain3_state.bin", sandbox)
+    version_header_file = get_output_path("drain3_version.meta", sandbox)
     should_reset = force_reset
-    if os.path.exists(VERSION_HEADER_FILE):
+    if os.path.exists(version_header_file):
         try:
-            with open(VERSION_HEADER_FILE, "r") as f:
+            with open(version_header_file, "r") as f:
                 v = int(f.read().strip())
                 if v != PROCESSOR_VERSION:
                     should_reset = True
         except Exception:
             should_reset = True
-    elif os.path.exists(DRAIN3_STATE_FILE):
+    elif os.path.exists(drain3_state_file):
         should_reset = True
 
     if should_reset:
-        for file_path in [DRAIN3_STATE_FILE, VERSION_HEADER_FILE]:
+        for file_path in [drain3_state_file, version_header_file]:
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
                 except Exception:
                     pass
         logger.info(f"Version migration / --reset-drain: Reset Drain3 cluster state for v{PROCESSOR_VERSION}.")
-        with open(VERSION_HEADER_FILE, "w") as f:
+        with open(version_header_file, "w") as f:
             f.write(str(PROCESSOR_VERSION))
 
-def process_phase1_incidents(reset_drain: bool = False):
-    events_file = project_path("frontend_data", "events_and_incidents.json")
-    status_file = project_path("frontend_data", "status.json")
-    raw_telemetry_file = project_path("frontend_data", "raw_telemetry.json")
-    time_series_file = project_path("frontend_data", "time_series.json")
-    chaos_history_file = project_path("frontend_data", "chaos_history.json")
-    output_file = project_path("frontend_data", "processed_incidents.json")
+def process_phase1_incidents(reset_drain: bool = False, sandbox: bool = False):
+    logger.info(f"Phase 1 processor starting. Sandbox={sandbox}, RunID={SHADOW_RUN_ID}")
+
+    drain3_state_file = get_output_path("drain3_state.bin", sandbox)
+    events_file = get_output_path("events_and_incidents.json", sandbox)
+    status_file = get_output_path("status.json", sandbox)
+    raw_telemetry_file = get_output_path("raw_telemetry.json", sandbox)
+    time_series_file = get_output_path("time_series.json", sandbox)
+    chaos_history_file = get_output_path("shadow_chaos_history.json" if sandbox else "chaos_history.json", sandbox)
+    output_file = get_output_path("unified_master_dataset.json", sandbox)
 
     logger.info("=== [Auto-SRE Phase 1] Processing Inbound Telemetry & Log Clusters ===")
 
     # FIX C5: Check version/reset first, then create fresh miner
-    check_drain_version_and_reset_if_needed(reset_drain)
+    if sandbox:
+        check_drain_version_and_reset_if_needed(reset_drain, sandbox=sandbox)
+    else:
+        check_drain_version_and_reset_if_needed(reset_drain)
 
-    miner = TemplateMiner(persistence_handler=FilePersistence(DRAIN3_STATE_FILE), config=config)
-    if os.path.exists(DRAIN3_STATE_FILE):
+
+    miner = TemplateMiner(persistence_handler=FilePersistence(drain3_state_file), config=config)
+    if os.path.exists(drain3_state_file):
         try:
             miner.load_state()
-            logger.info(f"Loaded Drain3 cluster state from '{DRAIN3_STATE_FILE}'")
+            logger.info(f"Loaded Drain3 cluster state from '{drain3_state_file}'")
         except Exception as e:
-            logger.warning(f"Could not load Drain3 state from '{DRAIN3_STATE_FILE}': {e}. Starting fresh.")
+            logger.warning(f"Could not load Drain3 state from '{drain3_state_file}': {e}. Starting fresh.")
+
 
     if not os.path.exists(events_file):
         logger.error(f"'{events_file}' not found.")
@@ -532,9 +559,22 @@ def process_phase1_incidents(reset_drain: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Auto-SRE Phase 1 Log Clustering Processor")
     parser.add_argument("--reset-drain", action="store_true", help="Delete Drain3 state file before processing to force fresh clustering")
+    parser.add_argument("--sandbox", action="store_true", default=False, help="Process shadow telemetry instead of production")
     args = parser.parse_args()
 
-    process_phase1_incidents(reset_drain=args.reset_drain)
+    process_phase1_incidents(reset_drain=args.reset_drain, sandbox=args.sandbox)
+
 
 def is_redis_noise(container_name: str, level: str, raw_content: str) -> bool:
     return is_infra_noise(container_name, level, raw_content)
+
+def process_telemetry_batch(telemetry_path: str = None, sandbox_mode: bool = False) -> list:
+    process_phase1_incidents(sandbox=sandbox_mode)
+    output_path = get_output_path("unified_master_dataset.json", sandbox=sandbox_mode)
+    data = read_json_file(output_path, {})
+    if isinstance(data, dict):
+        return data.get("incidents", [])
+    elif isinstance(data, list):
+        return data
+    return []
+

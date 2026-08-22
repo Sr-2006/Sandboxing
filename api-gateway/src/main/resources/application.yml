@@ -61,3 +61,15 @@ chaos:
 logging:
   pattern:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: shadow
+shadow:
+  gateway:
+    url: "${SHADOW_GATEWAY_URL:}"
+    enabled: "${SHADOW_MIRROR_ENABLED:false}"
+  auth-bypass: true
+

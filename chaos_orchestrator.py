@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
 import json
 import os
 import sys
 import argparse
 import socket
+import getpass
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import docker
@@ -13,9 +13,42 @@ import requests.exceptions
 import pika
 import pika.exceptions
 
-from utils import record_chaos_event, get_logger
+from utils import (
+    record_chaos_event,
+    get_logger,
+    project_path,
+    file_lock_context,
+    read_json_file,
+    atomic_write_json
+)
 
 logger = get_logger("chaos_orchestrator")
+
+TARGET_NAMESPACE = os.environ.get("CHAOS_TARGET_NAMESPACE", "production")
+if TARGET_NAMESPACE not in ("production", "shadow"):
+    raise ValueError(f"Invalid CHAOS_TARGET_NAMESPACE: {TARGET_NAMESPACE}. Must be 'production' or 'shadow'.")
+
+AUDIT_LOG_PATH = project_path("frontend_data", "sandbox_audit.log")
+
+def _append_audit_record(action: str, previous_ns: str = "", new_ns: str = "") -> None:
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "target_namespace": TARGET_NAMESPACE,
+        "previous_namespace": previous_ns,
+        "new_namespace": new_ns,
+        "user": getpass.getuser(),
+        "pid": os.getpid(),
+        "hostname": socket.gethostname()
+    }
+    with file_lock_context(AUDIT_LOG_PATH):
+        history = read_json_file(AUDIT_LOG_PATH, [])
+        if not isinstance(history, list):
+            history = []
+        history.append(entry)
+        atomic_write_json(AUDIT_LOG_PATH, history)
+
+_append_audit_record("orchestrator_startup")
 
 try:
     client = docker.from_env()
@@ -44,15 +77,16 @@ def get_service_url(service_name: str) -> str:
                 break
     if not port:
         raise ValueError(f"Unknown service: {service_name}")
-    
-    # Check if target host port is accessible (FIX M8: socket cleanup in finally)
+
+    if TARGET_NAMESPACE == "shadow":
+        return f"http://shadow-{service_name}:{port}"
+
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.2)
     try:
         s.connect((TARGET_HOST, port))
         return f"http://{TARGET_HOST}:{port}"
     except (socket.error, OSError):
-        # Fall back to Docker service name routing
         return f"http://{service_name}:{port}"
     finally:
         try:
@@ -63,13 +97,47 @@ def get_service_url(service_name: str) -> str:
 def get_container(target: str):
     if not client:
         raise docker.errors.DockerException("Docker client is not initialized")
+
+    resolved_target = target
+    if TARGET_NAMESPACE == "shadow" and not target.startswith("shadow-"):
+        resolved_target = f"shadow-{target}"
+    elif TARGET_NAMESPACE == "production" and target.startswith("shadow-"):
+        raise ValueError(f"Production namespace cannot target shadow container: {target}")
+
     try:
-        return client.containers.get(target)
+        return client.containers.get(resolved_target)
     except docker.errors.NotFound:
         for c in client.containers.list(all=True):
-            if target in c.name:
+            if resolved_target in c.name:
+                if TARGET_NAMESPACE == "shadow" and not c.name.startswith("shadow-"):
+                    continue
+                if TARGET_NAMESPACE == "production" and c.name.startswith("shadow-"):
+                    continue
                 return c
-        raise docker.errors.NotFound(f"Container '{target}' not found")
+        raise docker.errors.NotFound(f"Container '{resolved_target}' not found in namespace '{TARGET_NAMESPACE}'")
+
+def validate_namespace_safety(container) -> None:
+    labels = container.labels if isinstance(container.labels, dict) else {}
+    sandbox_label = labels.get("ara.topology.sandbox", "production")
+
+    if TARGET_NAMESPACE == "shadow" and not container.name.startswith("shadow-"):
+        raise RuntimeError(
+            f"NAMESPACE CONTAMINATION BLOCKED: Container '{container.name}' "
+            f"does not have 'shadow-' prefix but orchestrator is in shadow mode."
+        )
+    if TARGET_NAMESPACE == "production" and container.name.startswith("shadow-"):
+        raise RuntimeError(
+            f"NAMESPACE CONTAMINATION BLOCKED: Container '{container.name}' "
+            f"has 'shadow-' prefix but orchestrator is in production mode."
+        )
+    if sandbox_label != TARGET_NAMESPACE:
+        raise RuntimeError(
+            f"NAMESPACE CONTAMINATION BLOCKED: Target container '{container.name}' "
+            f"has sandbox label '{sandbox_label}' but orchestrator is in '{TARGET_NAMESPACE}' mode. "
+            f"This fault has been aborted."
+        )
+
+
 
 def log_chaos_event(
     fault_name: str,
@@ -111,36 +179,43 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
 
     if fault_name == "pause_container":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.pause()
         logger.info(f"Container {c.name} paused")
 
     elif fault_name == "unpause_container":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.unpause()
         logger.info(f"Container {c.name} unpaused")
 
     elif fault_name == "restart_container":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.restart()
         logger.info(f"Container {c.name} restarted")
 
     elif fault_name == "kill_container":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.kill(signal="SIGKILL")
         logger.info(f"Container {c.name} killed (SIGKILL)")
 
     elif fault_name == "cpu_throttle":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.update(cpu_period=100000, cpu_quota=10000)
         logger.info(f"Container {c.name} CPU throttled to 0.1")
 
     elif fault_name == "memory_limit":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.update(mem_limit="384m", memswap_limit="384m")
         logger.info(f"Container {c.name} memory limited to 384m")
 
     elif fault_name == "network_latency":
         c = get_container(target)
+        validate_namespace_safety(c)
         # FIX H2: Input validation and list-form exec_run (no shell injection)
         latency_ms = int(params.get("latency_ms", 200))
         if not (1 <= latency_ms <= 10000):
@@ -150,6 +225,18 @@ def apply_fault(fault_name: str, target: str, params: Optional[Dict[str, Any]] =
             logger.info(f"Container {c.name} injected {latency_ms}ms network latency via tc")
         except Exception as e:
             logger.warning(f"Could not inject tc latency (missing cap_add NET_ADMIN?): {e}")
+
+    elif fault_name == "network_partition":
+        c = get_container(target)
+        validate_namespace_safety(c)
+        duration = int(params.get("duration_s", 30))
+        if not (1 <= duration <= 300):
+            raise ValueError(f"duration_s must be 1..300, got {duration}")
+        try:
+            c.exec_run(["tc", "qdisc", "add", "dev", "eth0", "root", "netem", "loss", "100%"])
+            logger.info(f"Container {c.name} network partitioned for {duration}s")
+        except Exception as e:
+            logger.warning(f"Could not inject network partition: {e}")
 
     elif fault_name == "rabbitmq_backlog":
         # FIX H2: Message count validation (1..100000)
@@ -253,21 +340,25 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
 
     if fault_name == "pause_container":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.unpause()
         logger.info(f"Container {c.name} unpaused (recovered)")
 
     elif fault_name == "kill_container":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.start()
         logger.info(f"Container {c.name} restarted (recovered)")
 
     elif fault_name == "cpu_throttle":
         c = get_container(target)
+        validate_namespace_safety(c)
         c.update(cpu_period=100000, cpu_quota=-1)
         logger.info(f"Container {c.name} CPU quota restored to unlimited")
 
     elif fault_name == "memory_limit":
         c = get_container(target)
+        validate_namespace_safety(c)
         orig_mem = orig_config.get("memory", 0)
         orig_memswap = orig_config.get("memswap", 0)
         c.update(mem_limit=orig_mem, memswap_limit=orig_memswap)
@@ -275,12 +366,23 @@ def recover_fault(fault_name: str, target: str, orig_config: Optional[Dict[str, 
 
     elif fault_name == "network_latency":
         c = get_container(target)
+        validate_namespace_safety(c)
         try:
             # FIX H2: list-form exec_run
             c.exec_run(["tc", "qdisc", "del", "dev", "eth0", "root"])
             logger.info(f"Container {c.name} network latency removed")
         except Exception as e:
             logger.warning(f"Could not remove tc latency: {e}")
+
+    elif fault_name == "network_partition":
+        c = get_container(target)
+        validate_namespace_safety(c)
+        try:
+            c.exec_run(["tc", "qdisc", "del", "dev", "eth0", "root"])
+            logger.info(f"Container {c.name} network partition removed")
+        except Exception as e:
+            logger.warning(f"Could not remove network partition: {e}")
+
 
     elif fault_name == "rabbitmq_backlog":
         connection = None

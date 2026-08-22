@@ -1,0 +1,11 @@
+{
+  "incident_id": "case_11_pg_connection_exhaustion",
+  "problem": "Target Service: `postgres-db` - PostgreSQL max connection limit reached under traffic spike.",
+  "confidence": 92,
+  "consensus_quality": "HIGH",
+  "recommended_tier": "TIER_1_AUTONOMOUS_EXECUTION",
+  "safety_violation": false,
+  "action_commands": [
+    "Reset max_connections and adjust connection pool limit"
+  ]
+}

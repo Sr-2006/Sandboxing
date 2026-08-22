@@ -50,6 +50,16 @@ public class ChaosController {
         }
     }
 
+    @GetMapping("/shadow-status")
+    public ResponseEntity<Map<String, Object>> shadowStatus() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("sandbox", true);
+        response.put("chaos_enabled", true);
+        response.put("service", "api-gateway");
+        response.put("namespace", "shadow");
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/slow")
     public ResponseEntity<?> slow(
             @RequestHeader(value = "X-Chaos-Token", required = false) String token,

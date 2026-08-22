@@ -1,0 +1,249 @@
+version: "3.9"
+
+networks:
+  shadow-net:
+    driver: bridge
+    internal: false
+  prod-net:
+    external: true
+
+x-shadow-env: &shadow-env
+  CHAOS_ENABLED: "true"
+  CHAOS_SECRET: "${CHAOS_SECRET:?CHAOS_SECRET must be set in .env}"
+  SPRING_PROFILES_ACTIVE: "dev,shadow"
+  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env}"
+  INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be set in .env}"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  SHADOW_MODE: "true"
+  PAYMENT_MOCK_ENABLED: "true"
+  NOTIFICATION_MOCK_ENABLED: "true"
+  SMTP_MOCK: "true"
+
+services:
+  shadow-postgres-db:
+    image: postgres:16.2-alpine
+    container_name: shadow-postgres-db
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=relational-database"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:15432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - POSTGRES_DB=${POSTGRES_DB:?POSTGRES_DB must be set in .env}
+    mem_limit: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    restart: "on-failure:3"
+
+  shadow-redis:
+    image: redis:7.2.4-alpine
+    container_name: shadow-redis
+    networks:
+      - shadow-net
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"]
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=cache"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:16379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    mem_limit: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - shadow_redis_data:/data
+    restart: "on-failure:3"
+
+  shadow-rabbitmq:
+    image: rabbitmq:3.13.0-management-alpine
+    container_name: shadow-rabbitmq
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=message-broker"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:25672:5672"
+      - "127.0.0.1:15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:?RABBITMQ_DEFAULT_USER must be set in .env}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS must be set in .env}
+    mem_limit: 512M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - shadow_rabbitmq_data:/var/lib/rabbitmq
+    restart: "on-failure:3"
+
+  shadow-api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: shadow-api-gateway
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=gateway"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:9080:8080"
+    environment:
+      <<: *shadow-env
+      AUTH_SERVICE_URL: "http://shadow-auth-service:8081"
+      ORDER_SERVICE_URL: "http://shadow-order-service:8082"
+      PAYMENT_SERVICE_URL: "http://shadow-payment-service:8083"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://shadow-otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-api-gateway"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/postgres"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+    depends_on:
+      shadow-auth-service:
+        condition: service_healthy
+      shadow-order-service:
+        condition: service_healthy
+      shadow-payment-service:
+        condition: service_healthy
+    mem_limit: 512M
+    restart: "on-failure:3"
+
+  shadow-auth-service:
+    build:
+      context: ./auth-service
+    container_name: shadow-auth-service
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=auth"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:9081:8081"
+    environment:
+      <<: *shadow-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/auth_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+      SPRING_REDIS_HOST: "shadow-redis"
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://shadow-otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-auth-service"
+    depends_on:
+      shadow-postgres-db:
+        condition: service_healthy
+      shadow-redis:
+        condition: service_healthy
+    mem_limit: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: "on-failure:3"
+
+  shadow-order-service:
+    build:
+      context: ./order-service
+    container_name: shadow-order-service
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=order"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:9082:8082"
+    environment:
+      <<: *shadow-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/order_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://shadow-otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-order-service"
+    depends_on:
+      shadow-auth-service:
+        condition: service_healthy
+    mem_limit: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: "on-failure:3"
+
+  shadow-payment-service:
+    build:
+      context: ./payment-service
+    container_name: shadow-payment-service
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.group=shadow"
+      - "ara.topology.role=payment"
+      - "ara.topology.sandbox=shadow"
+    ports:
+      - "127.0.0.1:9083:8083"
+    environment:
+      <<: *shadow-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/payment_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://shadow-otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-payment-service"
+      PAYMENT_MOCK_ENABLED: "true"
+      STRIPE_API_KEY: "sk_test_mock"
+      PAYMENT_WEBHOOK_URL: "http://shadow-payment-service:8083/webhook/mock"
+    depends_on:
+      shadow-auth-service:
+        condition: service_healthy
+    mem_limit: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: "on-failure:3"
+
+  shadow-otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.102.0
+    container_name: shadow-otel-collector
+    networks:
+      - shadow-net
+    labels:
+      - "ara.topology.role=observability-collector"
+      - "ara.topology.sandbox=shadow"
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./shadow/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "127.0.0.1:24317:4317"
+      - "127.0.0.1:24318:4318"
+      - "127.0.0.1:28889:8889"
+    depends_on:
+      - jaeger
+    mem_limit: 256M
+    restart: "on-failure:3"
+
+volumes:
+  shadow_redis_data:
+  shadow_rabbitmq_data:

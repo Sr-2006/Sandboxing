@@ -20,9 +20,17 @@ public class InternalAuthFilter extends OncePerRequestFilter {
     @Value("${INTERNAL_SERVICE_TOKEN:${internal.service.token:}}")
     private String internalServiceToken;
 
+    @Value("${shadow.auth-bypass:false}")
+    private boolean shadowAuthBypass;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+
+        if (shadowAuthBypass) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         String path = request.getRequestURI();
 

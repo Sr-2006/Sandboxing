@@ -40,7 +40,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[1m])) by (application, uri)",
+          "expr": "sum(rate(http_server_requests_seconds_count{sandbox=\"$sandbox\",status=~\"5..\"}[1m])) by (application, uri)",
           "legendFormat": "{{application}} - {{uri}}",
           "range": true,
           "refId": "A"
@@ -79,7 +79,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (application)",
+          "expr": "sum(jvm_memory_used_bytes{sandbox=\"$sandbox\",area=\"heap\"}) by (application)",
           "legendFormat": "{{application}} Heap Used",
           "range": true,
           "refId": "A"
@@ -118,7 +118,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[1m])) by (le, application))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{sandbox=\"$sandbox\"}[1m])) by (le, application))",
           "legendFormat": "{{application}} p95",
           "range": true,
           "refId": "A"
@@ -157,7 +157,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(jvm_threads_live_threads) by (application)",
+          "expr": "sum(jvm_threads_live_threads{sandbox=\"$sandbox\"}) by (application)",
           "legendFormat": "{{application}} Threads",
           "range": true,
           "refId": "A"
@@ -173,12 +173,96 @@
           "unit": "none"
         }
       }
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "title": "Shadow Sandbox Health & Mirror Metrics",
+      "type": "row",
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 17
+          },
+          "id": 6,
+          "title": "Shadow Request Rate (per sec)",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(http_server_requests_seconds_count{sandbox=\"shadow\"}[1m])) by (application)",
+              "legendFormat": "Shadow {{application}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "fillOpacity": 15
+              },
+              "unit": "reqps"
+            }
+          }
+        }
+      ]
     }
   ],
   "refresh": "5s",
   "schemaVersion": 39,
   "style": "dark",
   "tags": ["auto-sre", "metrics", "overview"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "production",
+          "value": "production"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Sandbox",
+        "multi": false,
+        "name": "sandbox",
+        "options": [
+          {
+            "selected": true,
+            "text": "production",
+            "value": "production"
+          },
+          {
+            "selected": false,
+            "text": "shadow",
+            "value": "shadow"
+          }
+        ],
+        "query": "production,shadow",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
+  },
   "time": {
     "from": "now-15m",
     "to": "now"
@@ -189,5 +273,5 @@
   "timezone": "browser",
   "title": "Auto-SRE System Overview",
   "uid": "auto-sre-overview",
-  "version": 1
+  "version": 2
 }

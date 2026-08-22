@@ -1,0 +1,32 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: 0.0.0.0:4317}
+      http: {endpoint: 0.0.0.0:4318}
+
+processors:
+  resource/shadow:
+    attributes:
+      - {key: sandbox.environment, value: shadow, action: upsert}
+      - {key: service.namespace, value: shadow, action: upsert}
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls: {insecure: true}
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource/shadow, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [resource/shadow, batch]
+      exporters: [prometheus]

@@ -616,6 +616,12 @@ output, meant to be opened by a human (or by tooling built later, as a
 separate, explicitly scoped decision) — Layer 4 produces, it does not
 consume, matching every other layer's boundary in this design.
 
+### Confirmed Implementation: Layer 4 (Built)
+- **Module:** `shadow_sandbox/reports/report_generator.py` exposes `generate_report(outcome: Dict[str, Any], reports_dir: Optional[str] = None) -> str`.
+- **Side-by-side preservation:** Writes timestamped files `shadow_sandbox/reports/<incident_id>_<timestamp>.json` with counter disambiguation, guaranteeing zero overwriting.
+- **Null-field semantics:** Correctly distinguishes `fault_cleared: null` ("never attempted", blocked cases) from `fault_cleared: false` ("attempted, failed", executed cases).
+- **Unit test suite:** `shadow_sandbox/reports/test_reports.py` (3 tests) verifies EXECUTED formatting, BLOCKED null-field formatting, and non-overwriting file creation.
+
 ---
 
 ## 6. THE PIPELINE ORCHESTRATOR (confirmed — build last, after Layers 2-4)

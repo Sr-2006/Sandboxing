@@ -1,0 +1,61 @@
+{
+  "incident_id": "case_11_pg_connection_exhaustion",
+  "run_timestamp": "2026-08-25T14:31:00.123456+00:00",
+  "gate_decision": "EXECUTED",
+  "human_intervention_required": false,
+  "message": null,
+  "before_state": {
+    "target": "shadow-postgres-db",
+    "status": "running",
+    "running": true,
+    "paused": false,
+    "memory_limit_bytes": 536870912,
+    "nano_cpus": 0,
+    "cpu_quota": 0,
+    "captured_at": "2026-08-25T14:30:58.112233+00:00",
+    "held_connections_count": 100,
+    "active_connections": 100
+  },
+  "agent_proposal": {
+    "tool": "run_query",
+    "target": "shadow-postgres-db",
+    "parameters": {
+      "statement_type": "alter_system_set",
+      "setting": "max_connections",
+      "value": 200
+    },
+    "reasoning": "Fix instructs adjusting max_connections to 200; resolving database connection pool saturation."
+  },
+  "guardrail_result": {
+    "passed": true,
+    "reason": null
+  },
+  "execution_result": {
+    "target": "shadow-postgres-db",
+    "tool": "run_query",
+    "statement_type": "alter_system_set",
+    "setting": "max_connections",
+    "value": 200,
+    "sql": "ALTER SYSTEM SET max_connections = 200;",
+    "exit_code": 0,
+    "output": "ALTER SYSTEM",
+    "restarted_container": true
+  },
+  "after_state": {
+    "target": "shadow-postgres-db",
+    "status": "running",
+    "health": "starting",
+    "max_connections": 200,
+    "active_connections": 1
+  },
+  "fault_cleared": true,
+  "performance": {
+    "safety_check_time_s": 0.0,
+    "agent_proposal_time_s": 0.0002,
+    "guardrail_check_time_s": 0.0,
+    "execution_time_s": 0.725,
+    "settle_wait_time_s": 1.0002,
+    "state_recheck_time_s": 0.2089,
+    "total_pipeline_time_s": 1.9343
+  }
+}

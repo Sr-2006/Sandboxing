@@ -624,7 +624,7 @@ consume, matching every other layer's boundary in this design.
 
 ---
 
-## 6. THE PIPELINE ORCHESTRATOR (confirmed — build last, after Layers 2-4)
+## 6. THE PIPELINE ORCHESTRATOR (confirmed & built)
 
 **Why this exists, and why it's separate from the four layers above:**
 each layer (`faults/`, `remediation/`, `reports/`) is built to process ONE
@@ -705,13 +705,12 @@ it depends on and calls all three.
 
 ## 7. STATUS
 
-**Layers 1 (`clone/`), 2 (`faults/`), 3 (`remediation/`), and 4 (`reports/`) are implemented and built.** 
+**All subsystem layers — Layer 1 (`clone/`), Layer 2 (`faults/`), Layer 3 (`remediation/`), Layer 4 (`reports/`), and the Pipeline Orchestrator (`run_pipeline.py`) — are fully implemented, verified, and built.** 
 - **Layer 1 (`clone/`):** Cloned 7 Category A containers, dual-homed observability.
 - **Layer 2 (`faults/`):** Docker-SDK fault primitives, connection-exhaustion daemon, persistent recovery, fault-history logging, and fault-selection agent built.
 - **Layer 3 (`remediation/`):** Bounded Remediation Agent, `ALLOWED_TAMPER_SURFACE` guardrail, container tools, and 8-step execution harness built. Translation consolidated into `remediation_agent.py` (`action_adapter.py` removed).
 - **Layer 4 (`reports/`):** Write-only outcome record generator formatting and preserving side-by-side JSON reports (`shadow_sandbox/reports/<incident_id>_<timestamp>.json`).
-
-The pipeline orchestrator (section 6) is design-complete and scheduled to be built as the final layer.
+- **Pipeline Orchestrator (`run_pipeline.py`):** Unattended sequencing engine implementing `process_incident()` with Batch Mode and Watch Mode continuously processing incidents without manual intervention.
 
 ---
 

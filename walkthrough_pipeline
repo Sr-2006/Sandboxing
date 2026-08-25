@@ -1,0 +1,79 @@
+# Walkthrough — Pipeline Orchestrator (`shadow_sandbox/run_pipeline.py`)
+
+Implemented Section 6 (**Pipeline Orchestrator**) of the shadow sandboxing subsystem. The orchestrator links Layers 2 (`faults/`), 3 (`remediation/`), and 4 (`reports/`) into a fully automated, unattended execution pipeline.
+
+---
+
+## Changes Made
+
+### Subsystem File: [`shadow_sandbox/run_pipeline.py`](file:///c:/Users/Shashank/OneDrive/Desktop/Smart%20horizon%20hackathon/ARSE_Final/shadow_sandbox/run_pipeline.py)
+
+1. **`process_incident(incident_file, settle_wait_s=10.0)`**
+   - **Sequencing:** Reads incident JSON -> infers target and primitive via `FaultSelectionAgent`.
+   - **Unsuitable Fault Check:** Handles non-reproducible / missing fault primitives gracefully (`SKIPPED_NO_SUITABLE_FAULT`), writes Layer 4 report, and returns.
+   - **Recovery & Application:** Recovers baseline -> applies fault -> logs fault history event.
+   - **Harness Execution:** Calls Layer 3 `ExecutionHarness.run(incident_file)`.
+   - **Post-Run Cleanup:** Recovers baseline state after harness run.
+   - **Report Handoff:** Writes final report via Layer 4 `generate_report(outcome)`.
+   - **Non-Halting Safety Guarantee:** `BLOCKED_*` cases write safety reports with `human_intervention_required: true` and allow the pipeline loop to move directly to the next incident without stopping.
+
+2. **Execution Modes:**
+   - **Batch Mode (`--mode batch`):** Loops once over every `.json` file in an input directory (e.g. `shadow_sandbox/sample_inputs/`) and exits upon completion.
+   - **Watch Mode (`--mode watch`):** Continuously monitors an incoming directory for new incident `.json` files and automatically processes them as they arrive without manual intervention.
+
+3. **Unit Tests:** [`shadow_sandbox/test_pipeline.py`](file:///c:/Users/Shashank/OneDrive/Desktop/Smart%20horizon%20hackathon/ARSE_Final/shadow_sandbox/test_pipeline.py)
+
+---
+
+## How to Verify the Pipeline Orchestrator
+
+### 1. Run Automated Unit Tests
+Run the entire subsystem test suite (Layers 2, 3, 4, and Orchestrator):
+```bash
+python -m unittest shadow_sandbox/faults/test_faults.py shadow_sandbox/remediation/test_remediation.py shadow_sandbox/reports/test_reports.py shadow_sandbox/test_pipeline.py
+```
+* **Expected Result:** `Ran 13 tests in 2.155s ... OK`
+
+---
+
+### 2. Verify Batch Mode Run across All Sample Inputs
+Run the pipeline in batch mode against `shadow_sandbox/sample_inputs/`:
+```bash
+python -m shadow_sandbox.run_pipeline shadow_sandbox/sample_inputs --mode batch
+```
+
+* **Expected Real Output:**
+```
+[ORCHESTRATOR] Starting Batch Mode run over 4 incident file(s)...
+
+--- Processing Incident 1/4: case_11_pg_connection_exhaustion.json ---
+[ORCHESTRATOR] [case_11_pg_connection_exhaustion] Applying fault primitive 'apply_resource_exhaustion' on 'shadow-postgres-db'...
+[ORCHESTRATOR] [case_11_pg_connection_exhaustion] Running Layer 3 Execution Harness...
+[ORCHESTRATOR] [case_11_pg_connection_exhaustion] Processed (EXECUTED). Report written: shadow_sandbox/reports/case_11_pg_connection_exhaustion_20260825_155307.json
+
+--- Processing Incident 2/4: case_12_redis_eviction.json ---
+[ORCHESTRATOR] [case_12_redis_eviction] Applying fault primitive 'apply_resource_exhaustion' on 'shadow-redis'...
+[ORCHESTRATOR] [case_12_redis_eviction] Running Layer 3 Execution Harness...
+[ORCHESTRATOR] [case_12_redis_eviction] Processed (EXECUTED). Report written: shadow_sandbox/reports/case_12_redis_eviction_20260825_155309.json
+
+--- Processing Incident 3/4: case_16_rabbitmq_consumer.json ---
+[ORCHESTRATOR] [case_16_rabbitmq_consumer] Applying fault primitive 'apply_queue_pressure' on 'shadow-rabbitmq'...
+[ORCHESTRATOR] [case_16_rabbitmq_consumer] Running Layer 3 Execution Harness...
+[ORCHESTRATOR] [case_16_rabbitmq_consumer] Processed (EXECUTED). Report written: shadow_sandbox/reports/case_16_rabbitmq_consumer_20260825_155318.json
+
+--- Processing Incident 4/4: case_22_storage_corruption_nuclear.json ---
+[ORCHESTRATOR] [case_22_storage_corruption_nuclear] Applying fault primitive 'apply_process_disruption' on 'shadow-payment-service'...
+[ORCHESTRATOR] [case_22_storage_corruption_nuclear] Running Layer 3 Execution Harness...
+[ORCHESTRATOR] [case_22_storage_corruption_nuclear] Processed (BLOCKED_SAFETY_VIOLATION). Report written: shadow_sandbox/reports/case_22_storage_corruption_nuclear_20260825_155319.json
+
+[ORCHESTRATOR] Batch Mode run completed successfully.
+```
+
+---
+
+### 3. Verify Watch Mode Monitoring
+Start watch mode to monitor `shadow_sandbox/sample_inputs/`:
+```bash
+python -m shadow_sandbox.run_pipeline shadow_sandbox/sample_inputs --mode watch
+```
+* The process runs continuously, auto-detecting and processing any new incident JSON files dropped into the directory.

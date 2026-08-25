@@ -1,0 +1,66 @@
+# Walkthrough — Layer 4 (`shadow_sandbox/reports/`)
+
+Implemented **Layer 4** (`reports/`) of the shadow sandboxing subsystem. This layer is a write-only outcome record generator that formats outcome data produced by Layer 3 (`execution_harness.py`) and saves per-run JSON report files to `shadow_sandbox/reports/<incident_id>_<timestamp>.json`.
+
+---
+
+## Changes Made
+
+### Subsystem Directory: [`shadow_sandbox/reports/`](file:///c:/Users/Shashank/OneDrive/Desktop/Smart%20horizon%20hackathon/ARSE_Final/shadow_sandbox/reports/)
+
+1. **[`report_generator.py`](file:///c:/Users/Shashank/OneDrive/Desktop/Smart%20horizon%20hackathon/ARSE_Final/shadow_sandbox/reports/report_generator.py)**
+   - **Role:** Write-only outcome record generator matching Section 5 specifications.
+   - **Side-by-Side Preservation:** Generates unique timestamped filenames (`<incident_id>_<timestamp>.json`) with disambiguation counters, guaranteeing zero overwriting of previous runs.
+   - **Formatting & Null Semantics:**
+     - **BLOCKED cases (`BLOCKED_*`):** Flags `human_intervention_required: true` with a clear message, setting unexecuted stages/timings to `null` (`fault_cleared: null` means "never attempted").
+     - **EXECUTED cases (`EXECUTED`):** Flags `human_intervention_required: false` and `message: null`, populating all stage fields and per-stage timing metrics (`safety_check_time_s`, `agent_proposal_time_s`, `guardrail_check_time_s`, `execution_time_s`, `settle_wait_time_s`, `state_recheck_time_s`, `total_pipeline_time_s`).
+
+2. **[`test_reports.py`](file:///c:/Users/Shashank/OneDrive/Desktop/Smart%20horizon%20hackathon/ARSE_Final/shadow_sandbox/reports/test_reports.py)**
+   - Unit test suite verifying EXECUTED record formatting, BLOCKED null-field formatting, and non-overwriting file creation.
+
+---
+
+## How to Verify Layer 4
+
+### 1. Run Automated Unit Tests
+Run the Layer 4 test suite or full subsystem test suite:
+```bash
+python -m unittest shadow_sandbox/reports/test_reports.py
+```
+* **Expected Result:** `Ran 3 tests in 0.014s ... OK`
+
+Run unit tests across all implemented layers:
+```bash
+python -m unittest shadow_sandbox/faults/test_faults.py shadow_sandbox/remediation/test_remediation.py shadow_sandbox/reports/test_reports.py
+```
+* **Expected Result:** `Ran 11 tests in 0.012s ... OK`
+
+---
+
+### 2. Verify BLOCKED Case Report Generation (`case_22`)
+Run the report generator against `case_22_storage_corruption_nuclear.json`:
+```bash
+python -m shadow_sandbox.reports.report_generator shadow_sandbox/sample_inputs/case_22_storage_corruption_nuclear.json
+```
+* **Expected Output:**
+  - Generates file `shadow_sandbox/reports/case_22_storage_corruption_nuclear_<timestamp>.json`
+  - `gate_decision`: `"BLOCKED_SAFETY_VIOLATION"`
+  - `human_intervention_required`: `true`
+  - `message`: `"This incident's proposed fix was flagged as a safety violation and was not executed. Human review required before any further action."`
+  - `fault_cleared`: `null`
+  - Unexecuted stage timings (`agent_proposal_time_s`, `execution_time_s`, etc.): `null`
+
+---
+
+### 3. Verify EXECUTED Case Report Generation (`case_11`)
+Run the report generator against `case_11_pg_connection_exhaustion.json`:
+```bash
+python -m shadow_sandbox.reports.report_generator shadow_sandbox/sample_inputs/case_11_pg_connection_exhaustion.json
+```
+* **Expected Output:**
+  - Generates file `shadow_sandbox/reports/case_11_pg_connection_exhaustion_<timestamp>.json`
+  - `gate_decision`: `"EXECUTED"`
+  - `human_intervention_required`: `false`
+  - `message`: `null`
+  - `fault_cleared`: `true`
+  - `performance`: Per-stage timing metrics breakdown (`safety_check_time_s`, `agent_proposal_time_s`, `guardrail_check_time_s`, `execution_time_s`, `settle_wait_time_s`, `state_recheck_time_s`, `total_pipeline_time_s`)

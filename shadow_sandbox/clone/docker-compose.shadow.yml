@@ -1,0 +1,237 @@
+x-chaos-env: &chaos-env
+  CHAOS_ENABLED: "${ENABLE_CHAOS:-false}"
+  CHAOS_SECRET: "${CHAOS_SECRET:-CHANGE_ME_chaos_secret}"
+  SPRING_PROFILES_ACTIVE: "dev"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JWT_SECRET: "${JWT_SECRET:-c2VjdXJlX2p3dF9zZWNyZXRfa2V5X2Zvcl9hdXRvX3NyZV9wbGF0Zm9ybV8xMjM0NTY3ODkwMTIzNDU2Nzg5MA==}"
+  INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-internal_mesh_token_change_me_in_prod}"
+
+services:
+  shadow-postgres-db:
+    image: postgres:16.2-alpine
+    container_name: shadow-postgres-db
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-relational-database"
+    ports:
+      - "127.0.0.1:15432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres_secure_password}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: "on-failure:3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ../../postgres-init:/docker-entrypoint-initdb.d
+      - shadow_postgres_data:/var/lib/postgresql/data
+    networks:
+      - shadow-net
+
+  shadow-redis:
+    image: redis:7.2.4-alpine
+    container_name: shadow-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-redis_secure_password}"]
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-cache"
+    ports:
+      - "127.0.0.1:16379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_secure_password}
+    mem_limit: 256M
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - shadow_redis_data:/data
+    networks:
+      - shadow-net
+
+  shadow-rabbitmq:
+    image: rabbitmq:3.13.0-management-alpine
+    container_name: shadow-rabbitmq
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-message-broker"
+    ports:
+      - "127.0.0.1:15672:5672"
+      - "127.0.0.1:25672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-guest_secure_password}
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - shadow_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - shadow-net
+
+  shadow-api-gateway:
+    build:
+      context: ../../api-gateway
+    container_name: shadow-api-gateway
+    cap_add:
+      - NET_ADMIN
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-edge-routing"
+    ports:
+      - "127.0.0.1:18080:8080"
+    environment:
+      <<: *chaos-env
+      AUTH_SERVICE_URL: "http://shadow-auth-service:8081"
+      ORDER_SERVICE_URL: "http://shadow-order-service:8082"
+      PAYMENT_SERVICE_URL: "http://shadow-payment-service:8083"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-api-gateway"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/postgres"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres_secure_password}"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - shadow-net
+
+  shadow-auth-service:
+    build:
+      context: ../../auth-service
+    container_name: shadow-auth-service
+    cap_add:
+      - NET_ADMIN
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-authentication-service"
+    ports:
+      - "127.0.0.1:18081:8081"
+    environment:
+      <<: *chaos-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/auth_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres_secure_password}"
+      SPRING_REDIS_HOST: "shadow-redis"
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: "${REDIS_PASSWORD:-redis_secure_password}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-auth-service"
+    mem_limit: 384M
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - shadow-postgres-db
+      - shadow-redis
+    networks:
+      - shadow-net
+
+  shadow-order-service:
+    build:
+      context: ../../order-service
+    container_name: shadow-order-service
+    cap_add:
+      - NET_ADMIN
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-order-processing"
+    ports:
+      - "127.0.0.1:18082:8082"
+    environment:
+      <<: *chaos-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/order_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres_secure_password}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-order-service"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - shadow-postgres-db
+    networks:
+      - shadow-net
+
+  shadow-payment-service:
+    build:
+      context: ../../payment-service
+    container_name: shadow-payment-service
+    cap_add:
+      - NET_ADMIN
+    labels:
+      - "ara.topology.group=shadow-backend"
+      - "ara.topology.role=shadow-payment-processing"
+    ports:
+      - "127.0.0.1:18083:8083"
+    environment:
+      <<: *chaos-env
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://shadow-postgres-db:5432/payment_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-postgres_secure_password}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "shadow-payment-service"
+    mem_limit: 512M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - shadow-postgres-db
+    networks:
+      - shadow-net
+
+networks:
+  shadow-net:
+    name: shadow-net
+    external: true
+
+volumes:
+  shadow_postgres_data:
+  shadow_redis_data:
+  shadow_rabbitmq_data:

@@ -1,0 +1,18 @@
+{
+  "incident_id": "case_12_redis_eviction",
+  "problem": "Target Service: `redis` - Memory limit reached under noeviction policy. Redis is rejecting write operations with OOM command not allowed when maxmemory is hit.",
+  "orchestrator": {
+    "technical_solution": {
+      "action_commands": [
+        "Update redis maxmemory-policy to volatile-lru"
+      ],
+      "confidence": 95,
+      "calculated_confidence": 82,
+      "safety_violation": false
+    }
+  },
+  "root_cause_analysis": {
+    "summary": "Redis cache memory full with noeviction policy rejecting SET queries on redis.",
+    "reasoning": "Default maxmemory-policy prevents eviction of expired keys under memory pressure."
+  }
+}

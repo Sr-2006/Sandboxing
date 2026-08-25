@@ -1,0 +1,18 @@
+{
+  "incident_id": "case_11_pg_connection_exhaustion",
+  "problem": "Target Service: `postgres-db` - PostgreSQL max connection limit reached (100/100). Incoming client connections are queued or timing out with 'FATAL: sorry, too many clients already'.",
+  "orchestrator": {
+    "technical_solution": {
+      "action_commands": [
+        "Reset max_connections to 200 and adjust connection pool limit"
+      ],
+      "confidence": 95,
+      "calculated_confidence": 78,
+      "safety_violation": false
+    }
+  },
+  "root_cause_analysis": {
+    "summary": "PostgreSQL max connection limit reached causing query timeouts and pool exhaustion on postgres-db.",
+    "reasoning": "High client traffic burst saturated all 100 available connections on postgres-db."
+  }
+}

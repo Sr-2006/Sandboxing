@@ -1,0 +1,46 @@
+[
+  {
+    "incident_id": "case_11_pg_connection_exhaustion",
+    "fault_type": "apply_resource_exhaustion",
+    "target": "shadow-postgres-db",
+    "timestamp": "2026-08-25T04:16:28.562804+00:00",
+    "parameters": {
+      "resource_type": "postgres_connections",
+      "connection_count": 100
+    },
+    "before_state": {
+      "target": "shadow-postgres-db",
+      "status": "running",
+      "running": true,
+      "paused": false,
+      "memory_limit_bytes": 536870912,
+      "nano_cpus": 0,
+      "cpu_quota": 0,
+      "captured_at": "2026-08-25T04:16:28.107458+00:00",
+      "held_connections_count": 0
+    },
+    "active": false
+  },
+  {
+    "incident_id": "case_11_pg_connection_exhaustion",
+    "fault_type": "apply_resource_exhaustion",
+    "target": "shadow-postgres-db",
+    "timestamp": "2026-08-25T05:33:33.925013+00:00",
+    "parameters": {
+      "resource_type": "postgres_connections",
+      "connection_count": 100
+    },
+    "before_state": {
+      "target": "shadow-postgres-db",
+      "status": "running",
+      "running": true,
+      "paused": false,
+      "memory_limit_bytes": 536870912,
+      "nano_cpus": 0,
+      "cpu_quota": 0,
+      "captured_at": "2026-08-25T05:33:33.310278+00:00",
+      "held_connections_count": 0
+    },
+    "active": true
+  }
+]

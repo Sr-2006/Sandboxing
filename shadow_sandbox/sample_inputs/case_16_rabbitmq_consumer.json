@@ -1,0 +1,18 @@
+{
+  "incident_id": "case_16_rabbitmq_consumer",
+  "problem": "Target Service: `rabbitmq` - High message queue backlog accumulating in order-processing queue due to insufficient consumer count.",
+  "orchestrator": {
+    "technical_solution": {
+      "action_commands": [
+        "Scale consumer count to 5 and adjust prefetch count"
+      ],
+      "confidence": 95,
+      "calculated_confidence": 75,
+      "safety_violation": false
+    }
+  },
+  "root_cause_analysis": {
+    "summary": "RabbitMQ queue congestion on rabbitmq due to consumer throughput bottleneck.",
+    "reasoning": "Message publication rate exceeds single consumer processing rate."
+  }
+}

@@ -497,7 +497,7 @@ as final.
 
 ---
 
-## 5. LAYER 4 — `reports/` (confirmed)
+## 5. LAYER 4 — `reports/` (confirmed & built)
 
 **Role:** write-only assembly of what happened, per incident. Not a
 decision-maker — every field traces back to something an earlier layer
@@ -699,12 +699,13 @@ it depends on and calls all three.
 
 ## 7. STATUS
 
-**Layer 1 (`clone/`), Layer 2 (`faults/`), and Layer 3 (`remediation/`) are implemented and running.** 
+**Layers 1 (`clone/`), 2 (`faults/`), 3 (`remediation/`), and 4 (`reports/`) are implemented and built.** 
 - **Layer 1 (`clone/`):** Cloned 7 Category A containers, dual-homed observability.
 - **Layer 2 (`faults/`):** Docker-SDK fault primitives, connection-exhaustion daemon, persistent recovery, fault-history logging, and fault-selection agent built.
 - **Layer 3 (`remediation/`):** Bounded Remediation Agent, `ALLOWED_TAMPER_SURFACE` guardrail, container tools, and 8-step execution harness built. Translation consolidated into `remediation_agent.py` (`action_adapter.py` removed).
+- **Layer 4 (`reports/`):** Write-only outcome record generator formatting and preserving side-by-side JSON reports (`shadow_sandbox/reports/<incident_id>_<timestamp>.json`).
 
-Layer 4 (`reports/`) is design-complete but not yet built. The pipeline orchestrator (section 6) is design-complete and scheduled to be built after Layer 4 is complete.
+The pipeline orchestrator (section 6) is design-complete and scheduled to be built as the final layer.
 
 ---
 

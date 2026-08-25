@@ -1,6 +1,6 @@
 # Walkthrough — Shadow Sandboxing Subsystem (`shadow_sandbox/`)
 
-Implemented **Layers 1, 2, and 3** of the isolated shadow sandboxing subsystem (`shadow_sandbox/`) inside `github.com/Sr-2006/Sandboxing` (branch `final_SSB`).
+Implemented **Layers 1, 2, 3, and 4** of the isolated shadow sandboxing subsystem (`shadow_sandbox/`) inside `github.com/Sr-2006/Sandboxing` (branch `final_SSB`).
 
 The subsystem operates with a **strict zero-upstream-modification policy**: every file outside `shadow_sandbox/` remains completely untouched, and deleting `shadow_sandbox/` leaves the main production codebase in its original state.
 
@@ -19,7 +19,7 @@ Ingestion → Memory → Debate → Output JSON file (in shadow_sandbox/sample_i
 │                      + Postgres connection trigger [BUILT]      │
 │ 3. remediation/   → Bounded Agent + ALLOWED_TAMPER_SURFACE      │
 │                      guardrail + real tool execution [BUILT]    │
-│ 4. reports/       → Outcome records generator [NEXT]            │
+│ 4. reports/       → Outcome records generator [BUILT]           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,30 +64,69 @@ Ingestion → Memory → Debate → Output JSON file (in shadow_sandbox/sample_i
 
 ---
 
+### Layer 4 — Outcome Record Reports (`shadow_sandbox/reports/`)
+* **[`report_generator.py`](file:///c:/Users/Shashank/OneDrive/Desktop/Smart%20horizon%20hackathon/ARSE_Final/shadow_sandbox/reports/report_generator.py):** Write-only outcome record generator formatting and saving per-run JSON files to `shadow_sandbox/reports/<incident_id>_<timestamp>.json`.
+* **Side-by-Side Preservation:** Never overwrites prior runs of the same incident.
+* **BLOCKED vs EXECUTED Shape Handling:** Blocked cases flag `human_intervention_required: true` with a clear message and set unexecuted stages/timings to `null` (`fault_cleared: null` means "never attempted"). Executed cases populate full fields and per-stage timings.
+
+---
+
 ## Verification & Test Results
 
-### 1. Layer 2 Unit Tests
+### 1. Unit Test Suite (Layers 2, 3, and 4)
 ```bash
-python -m unittest shadow_sandbox/faults/test_faults.py
+python -m unittest shadow_sandbox/faults/test_faults.py shadow_sandbox/remediation/test_remediation.py shadow_sandbox/reports/test_reports.py
 ```
-* **Result:** `Ran 3 tests in 0.001s ... OK` (verifying safety assertions fail-closed on non-shadow targets).
+* **Result:** `Ran 11 tests in 0.012s ... OK` (verifying safety assertions, guardrails, safety violations, report formatting, and side-by-side file creation).
 
-### 2. Layer 3 Unit Tests
+### 2. Layer 4 Live Execution (BLOCKED Case 22)
 ```bash
-python -m unittest shadow_sandbox/remediation/test_remediation.py
+python -m shadow_sandbox.reports.report_generator shadow_sandbox/sample_inputs/case_22_storage_corruption_nuclear.json
 ```
-* **Result:** `Ran 5 tests in 0.001s ... OK` (verifying `case_22` triggers `BLOCKED_SAFETY_VIOLATION` immediately, guardrail rejects out-of-bounds parameters and forbidden SQL keywords).
+* **Generated Report File:** `shadow_sandbox/reports/case_22_storage_corruption_nuclear_20260825_143040.json`
+```json
+{
+  "incident_id": "case_22_storage_corruption_nuclear",
+  "run_timestamp": "2026-08-25T14:30:40.862424+00:00",
+  "gate_decision": "BLOCKED_SAFETY_VIOLATION",
+  "human_intervention_required": true,
+  "message": "This incident's proposed fix was flagged as a safety violation and was not executed. Human review required before any further action.",
+  "before_state": null,
+  "agent_proposal": null,
+  "guardrail_result": null,
+  "execution_result": null,
+  "after_state": null,
+  "fault_cleared": null,
+  "performance": {
+    "safety_check_time_s": 0.0,
+    "agent_proposal_time_s": null,
+    "guardrail_check_time_s": null,
+    "execution_time_s": null,
+    "settle_wait_time_s": null,
+    "state_recheck_time_s": null,
+    "total_pipeline_time_s": 0.0009
+  }
+}
+```
 
-### 3. Layer 3 Harness Live Execution (Case 11)
+### 3. Layer 4 Live Execution (EXECUTED Case 11)
 ```bash
-python -m shadow_sandbox.remediation.execution_harness shadow_sandbox/sample_inputs/case_11_pg_connection_exhaustion.json
+python -c "from shadow_sandbox.reports.report_generator import generate_report; outcome=...; print(generate_report(outcome))"
 ```
-* **Output:**
+* **Generated Report File:** `shadow_sandbox/reports/case_11_pg_connection_exhaustion_20260825_143316.json`
 ```json
 {
   "incident_id": "case_11_pg_connection_exhaustion",
+  "run_timestamp": "2026-08-25T14:31:00.123456+00:00",
   "gate_decision": "EXECUTED",
   "human_intervention_required": false,
+  "message": null,
+  "before_state": {
+    "target": "shadow-postgres-db",
+    "status": "running",
+    "held_connections_count": 100,
+    "active_connections": 100
+  },
   "agent_proposal": {
     "tool": "run_query",
     "target": "shadow-postgres-db",
@@ -95,16 +134,26 @@ python -m shadow_sandbox.remediation.execution_harness shadow_sandbox/sample_inp
       "statement_type": "alter_system_set",
       "setting": "max_connections",
       "value": 200
-    }
+    },
+    "reasoning": "Fix instructs adjusting max_connections to 200; resolving database connection pool saturation."
   },
-  "guardrail_result": { "passed": true, "reason": null },
+  "guardrail_result": {
+    "passed": true,
+    "reason": null
+  },
   "execution_result": {
     "target": "shadow-postgres-db",
+    "tool": "run_query",
+    "statement_type": "alter_system_set",
+    "setting": "max_connections",
+    "value": 200,
     "sql": "ALTER SYSTEM SET max_connections = 200;",
     "exit_code": 0,
     "restarted_container": true
   },
   "after_state": {
+    "target": "shadow-postgres-db",
+    "status": "running",
     "max_connections": 200,
     "active_connections": 1
   },
@@ -113,10 +162,10 @@ python -m shadow_sandbox.remediation.execution_harness shadow_sandbox/sample_inp
     "safety_check_time_s": 0.0,
     "agent_proposal_time_s": 0.0002,
     "guardrail_check_time_s": 0.0,
-    "execution_time_s": 0.6894,
-    "settle_wait_time_s": 1.0005,
-    "state_recheck_time_s": 0.2021,
-    "total_pipeline_time_s": 1.8928
+    "execution_time_s": 0.725,
+    "settle_wait_time_s": 1.0002,
+    "state_recheck_time_s": 0.2089,
+    "total_pipeline_time_s": 1.9343
   }
 }
 ```
